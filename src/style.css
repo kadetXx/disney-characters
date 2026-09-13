@@ -1,0 +1,638 @@
+:root {
+  --color-bg: #ffffff;
+  --color-ink: #14141a;
+  --color-muted: #9a9aa3;
+  --color-muted-2: #b4b4bc;
+  --color-search-bg: #efeff2;
+
+  --font-display: "Fredoka", sans-serif;
+  --font-word: "Pacifico", cursive;
+  --font-body: "Inter", sans-serif;
+
+  --nav-pad-x: clamp(20px, 4vw, 64px);
+
+  /* One source of truth for the card box. Proportions are taken straight off
+     the reference: the card is 25% of the viewport width, and its panel is
+     ~1.06x as tall as it is wide. The panel is 64% of the card box (the rest
+     is the space the character stands in), so card height = width * 1.06/0.64.
+     Sized against the viewport rather than fixed px so the composition keeps
+     filling the page the way the reference does instead of leaving a void. */
+  --card-w: clamp(210px, 25vw, 560px);
+  --card-h: min(calc(var(--card-w) * 1.656), 72vh);
+  --card-gap: clamp(18px, 3.8vw, 85px);
+  --card-overscan: calc(var(--card-h) * 0.72);
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+img {
+  display: block;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* Nav */
+.nav {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px var(--nav-pad-x) 0;
+  flex-shrink: 0;
+}
+
+.logo {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.logo-mark {
+  height: 30px;
+  width: auto;
+}
+
+.logo-word {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 21px;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.search {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-search-bg);
+  border-radius: 100px;
+  padding: 15px 22px;
+  width: clamp(220px, 26vw, 320px);
+  color: var(--color-muted);
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.search-input {
+  border: none;
+  background: none;
+  outline: none;
+  font-family: var(--font-body);
+  font-size: 16px;
+  color: var(--color-ink);
+  width: 100%;
+  min-width: 0;
+}
+
+.search-input::placeholder {
+  color: var(--color-muted);
+}
+
+.menu-btn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--color-ink);
+  flex-shrink: 0;
+  outline: none;
+  transition: opacity 150ms ease;
+}
+
+.menu-btn:hover,
+.menu-btn:focus-visible {
+  opacity: 0.6;
+}
+
+.app {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------- */
+/* Grid view                                                        */
+/* ---------------------------------------------------------------- */
+
+.grid-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  justify-content: flex-end;
+  gap: clamp(20px, 3.5vh, 44px);
+  /* no padding-top needed: the card box is viewport-proportional now, so it
+     fills this space itself, and the character's overhang lives in the
+     track's own padding (see .carousel-track) */
+}
+
+.carousel-viewport {
+  /* no overflow rule here -- .carousel-track handles its own horizontal
+     scroll clipping, and leaving this open lets a tall pose (wings, raised
+     arms) protrude above the card without being cropped */
+}
+
+.carousel-track {
+  display: flex;
+  flex-direction: row;
+  gap: var(--card-gap);
+  /* a scroll container clips BOTH axes -- overflow-y:visible alongside
+     overflow-x:auto is not a thing, the spec computes it back to auto. So the
+     characters' heads were being sliced off at this box's top edge. Giving the
+     scrollport enough top padding to hold the overscan puts that protrusion
+     *inside* the padding box (never clipped), and the matching negative margin
+     cancels it out so the row still sits exactly where it did before. */
+  overflow-x: auto;
+  padding-top: var(--card-overscan);
+  margin-top: calc(var(--card-overscan) * -1);
+  scroll-snap-type: x proximity;
+  scroll-behavior: smooth;
+  padding-left: var(--nav-pad-x);
+  padding-right: var(--nav-pad-x);
+  /* without this, scroll-snap treats the leading padding as "before" the
+     snap port and auto-scrolls past it on load, landing the first card
+     flush against the edge instead of at the padded inset */
+  scroll-padding-left: var(--nav-pad-x);
+  /* hide the native scrollbar -- Prev/Next + swipe are the intended controls */
+  scrollbar-width: none;
+}
+
+.carousel-track::-webkit-scrollbar {
+  display: none;
+}
+
+.char-card {
+  position: relative;
+  width: var(--card-w);
+  height: var(--card-h);
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  outline: none;
+  text-align: left;
+}
+
+.char-card-canvas-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.char-card-canvas-wrap canvas {
+  position: absolute;
+  /* overscanned on BOTH axes. Vertically: headroom for tall poses, with
+     viewer.js's verticalAnchor pinning the feet low in the box rather than
+     centering the character in all that room. Horizontally: the camera fits
+     whichever extent is larger, so a wide pose (Rosetta's wings, Moana's
+     hair) would otherwise get shrunk just to squeeze its width inside the
+     card. Letting the canvas run past the card edges keeps those characters
+     full-size and lets them spill over the card the way the reference does. */
+  top: -60%;
+  left: calc(-25% + var(--shift-x, 0%));
+  width: 150%;
+  height: 150%;
+  display: block;
+}
+
+.char-card-panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  /* panel heights differ per character in the reference while their bottoms
+     stay aligned, so this is anchored to bottom:0 and only its top edge moves.
+     Nothing else shifts: the text is bottom-aligned inside it, and the
+     character's canvas is positioned against the card box, not the panel. */
+  height: calc(var(--card-w) * var(--panel-ratio, 1.06));
+  border-radius: 28px;
+  /* reference leaves ~14% of the panel height empty below the text block
+     (measured off the Disgust card: panel 599-1112, text bottom at 86% down) */
+  padding: 26px calc(var(--card-w) * 0.085) calc(var(--card-h) * 0.065);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  box-shadow: 0 18px 30px -10px rgba(0, 0, 0, 0.2);
+}
+
+.char-card-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(24px, 2.6vw, 32px);
+  letter-spacing: -0.01em;
+  line-height: 1;
+  margin: 0;
+}
+
+.char-card-movie {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.75);
+  /* <p> ships with a 1em default margin -- it was adding 15px of dead space
+     between the name and this line, and another 15px below it */
+  margin: 0;
+}
+
+.char-card-movie b {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.grid-footer {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(38px, 6vh, 78px) var(--nav-pad-x) clamp(44px, 7vh, 86px);
+  flex-shrink: 0;
+}
+
+.social-links {
+  display: flex;
+  flex-direction: row;
+  gap: 28px;
+}
+
+.social-links a {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--color-muted-2);
+  text-decoration: none;
+}
+
+.social-links a:hover {
+  color: var(--color-muted);
+}
+
+.pager {
+  display: flex;
+  flex-direction: row;
+  gap: 32px;
+}
+
+.pager-btn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 15px;
+  outline: none;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.pager-btn:hover {
+  transform: translateY(-1px);
+}
+
+.pager-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+  transform: none;
+}
+
+.pager-btn svg {
+  display: block;
+}
+
+/* ---------------------------------------------------------------- */
+/* Detail view                                                      */
+/* ---------------------------------------------------------------- */
+
+.detail-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.close-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 22px var(--nav-pad-x) 0;
+  flex-shrink: 0;
+}
+
+.close-btn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 15px;
+  outline: none;
+  transition: opacity 150ms ease;
+}
+
+.close-btn:hover,
+.close-btn:focus-visible {
+  opacity: 0.6;
+}
+
+.detail-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  padding: 10px 0 24px;
+}
+
+.detail-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 24px;
+  width: clamp(70px, 8vw, 110px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 3;
+}
+
+.rail-tab {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: var(--color-ink);
+  outline: none;
+  transition: color 150ms ease;
+}
+
+.rail-tab:not(.is-active) {
+  font-weight: 500;
+  font-size: 17px;
+  color: var(--color-muted-2);
+}
+
+.rail-tab.is-active {
+  font-weight: 600;
+  cursor: default;
+}
+
+.rail-tab:not(.is-active):hover {
+  color: var(--color-muted);
+}
+
+.rail-next-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.rail-chevron {
+  display: flex;
+  outline: none;
+  transition: transform 150ms ease;
+}
+
+.rail-chevron:hover {
+  transform: translateY(2px);
+}
+
+.detail-panel {
+  position: absolute;
+  top: clamp(70px, 12vh, 110px);
+  left: clamp(160px, 20vw, 290px);
+  right: 0;
+  bottom: 0;
+  border-radius: clamp(36px, 5vw, 64px) 0 0 0;
+  padding: clamp(28px, 4vw, 56px) clamp(28px, 5vw, 64px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 32px;
+  overflow: hidden;
+}
+
+.detail-mascot-canvas {
+  position: absolute;
+  top: -18%;
+  left: clamp(20px, 3vw, 48px);
+  width: clamp(180px, 20vw, 320px);
+  height: clamp(210px, 24vw, 370px);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.detail-info {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 40px;
+  padding-left: clamp(200px, 22vw, 300px);
+  position: relative;
+  z-index: 2;
+}
+
+.detail-text {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 640px;
+}
+
+.detail-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(38px, 5vw, 68px);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin: 0;
+}
+
+.detail-movie {
+  font-family: var(--font-body);
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.detail-movie b {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.detail-description {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 19px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 10px 0 0;
+}
+
+.detail-badge {
+  position: relative;
+  width: 150px;
+  height: 130px;
+  flex-shrink: 0;
+}
+
+.detail-badge span {
+  position: absolute;
+  border-radius: 100%;
+}
+
+.detail-clips {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-left: clamp(200px, 22vw, 300px);
+  position: relative;
+  z-index: 2;
+  min-height: 0;
+}
+
+.detail-clips-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 20px;
+  color: #ffffff;
+}
+
+.clips-track {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  /* bleed past the panel's own right padding so a partial card is visibly
+     cut off at the panel edge -- the intended "there's more, scroll" hint */
+  margin-right: calc(-1 * clamp(28px, 5vw, 64px));
+  padding-right: clamp(28px, 5vw, 64px);
+}
+
+.clips-track::-webkit-scrollbar {
+  display: none;
+}
+
+.clip-card {
+  position: relative;
+  width: clamp(190px, 20vw, 300px);
+  height: clamp(130px, 13vw, 190px);
+  flex-shrink: 0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.14);
+  scroll-snap-align: start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clip-play {
+  width: 44px;
+  height: 44px;
+  border-radius: 100%;
+  background: rgba(255, 255, 255, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------------------------------------------------------------- */
+/* Shared: transitions                                              */
+/* ---------------------------------------------------------------- */
+
+.fade-scale-pane {
+  transition: opacity 240ms ease, transform 240ms ease;
+}
+
+.fade-scale-enter {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+/* ---------------------------------------------------------------- */
+/* Responsive                                                       */
+/* ---------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .search-input::placeholder {
+    color: transparent;
+  }
+
+  .search {
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 100%;
+  }
+
+  .search-input {
+    display: none;
+  }
+
+  .menu-btn span {
+    display: none;
+  }
+
+  .detail-rail {
+    left: 4px;
+    width: 60px;
+  }
+
+  .detail-panel {
+    left: clamp(90px, 26vw, 160px);
+    border-radius: clamp(28px, 8vw, 40px) 0 0 0;
+  }
+
+  .detail-mascot-canvas {
+    left: 12px;
+    width: clamp(140px, 32vw, 200px);
+    height: clamp(160px, 36vw, 220px);
+  }
+
+  .detail-info,
+  .detail-clips {
+    padding-left: 0;
+  }
+
+  .detail-badge {
+    display: none;
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.DS_Store
+
+# raw Meshy exports (50-140MB each) -- public/models/ has the compressed,
+# web-ready versions actually used by the app
+/models/

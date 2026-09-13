@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="A 3D Disney character browser, built with Three.js." />
+    <meta name="theme-color" content="#ffffff" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'self'"
+    />
+    <title>Disney Characters</title>
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      id="fontsStylesheet"
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;700&family=Pacifico&display=swap"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;700&family=Pacifico&display=swap"
+      />
+    </noscript>
+
+    <!-- the default character's model: shared by the main viewport and the
+         carousel card via the model cache, so it's the one fetch that
+         actually gates first paint -- starting it during HTML parsing beats
+         waiting for the JS bundle to load and request it itself -->
+    <link rel="preload" href="/models/rosetta.glb" as="fetch" crossorigin />
+
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="nav">
+        <div class="logo">
+          <img class="logo-mark" src="/disney.svg" alt="Disney" />
+          <span class="logo-word">Characters</span>
+        </div>
+        <div class="search">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
+            <path d="M21 21L16.65 16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+          <input class="search-input" type="text" placeholder="Search characters...." aria-label="Search characters" />
+        </div>
+        <button class="menu-btn" type="button" aria-label="Menu">
+          <span>Menu</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="4" cy="4" r="1.8" fill="currentColor" />
+            <circle cx="12" cy="4" r="1.8" fill="currentColor" />
+            <circle cx="4" cy="12" r="1.8" fill="currentColor" />
+            <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+          </svg>
+        </button>
+      </header>
+
+      <main id="app" class="app"></main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
