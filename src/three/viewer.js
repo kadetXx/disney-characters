@@ -1,17 +1,75 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
 
 const modelCache = new Map();
 
+// How glossy the characters read. Roughness is clamped (lower = sharper
+// reflections) and a clearcoat layer sits on top, like the lacquer on a vinyl
+// figure. Gloss needs something to reflect, so this only shows up alongside
+// the environment map below.
+// One place to tune how the characters are lit and how shiny they read.
+// envIntensity is the big lever for "too shiny": it controls how much of the
+// environment they reflect, and it also lifts the shadow side, so turning it
+// down both dulls the sheen and restores light-to-dark falloff across the form.
+// ambient vs key is the other lever -- a low ambient with a strong key is what
+// gives them shape instead of looking evenly lit from everywhere.
+const LOOK = {
+  maxRoughness: 0.78,
+  clearcoat: 0.1,
+  clearcoatRoughness: 0.35,
+  envIntensity: 0.1,
+  exposure: 0.7,
+  ambient: 0.06,
+  key: 2.1,
+  rim: 0.35,
+};
+const GLOSS = LOOK;
+
+// glTF gives us MeshStandardMaterial; MeshPhysicalMaterial adds the clearcoat.
+// Built field by field rather than via copy(), which would read clearcoat
+// properties off the standard material that don't exist there.
+function toGlossy(m) {
+  if (!m || !m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) return m;
+  const g = new THREE.MeshPhysicalMaterial({
+    color: m.color, map: m.map,
+    normalMap: m.normalMap, normalScale: m.normalScale,
+    roughnessMap: m.roughnessMap, metalnessMap: m.metalnessMap,
+    aoMap: m.aoMap, aoMapIntensity: m.aoMapIntensity,
+    emissive: m.emissive, emissiveMap: m.emissiveMap, emissiveIntensity: m.emissiveIntensity,
+    alphaMap: m.alphaMap, transparent: m.transparent, opacity: m.opacity,
+    alphaTest: m.alphaTest, side: m.side, vertexColors: m.vertexColors,
+    metalness: m.metalness,
+    roughness: Math.min(m.roughness ?? 1, GLOSS.maxRoughness),
+    clearcoat: GLOSS.clearcoat,
+    clearcoatRoughness: GLOSS.clearcoatRoughness,
+    envMapIntensity: GLOSS.envIntensity,
+  });
+  g.name = m.name;
+  return g;
+}
+
+// applied once to the cached source scene, so every clone of a model inherits
+// it and the six card viewers keep sharing one set of materials
+function applyGloss(root) {
+  root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    o.material = Array.isArray(o.material) ? o.material.map(toGlossy) : toGlossy(o.material);
+  });
+}
+
 function loadModel(url) {
   if (!modelCache.has(url)) {
     modelCache.set(
       url,
-      loader.loadAsync(url).then((gltf) => gltf.scene)
+      loader.loadAsync(url).then((gltf) => {
+        applyGloss(gltf.scene);
+        return gltf.scene;
+      })
     );
   }
   return modelCache.get(url);
@@ -57,15 +115,26 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // highlights from the env map blow out without this
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = LOOK.exposure;
 
   const scene = new THREE.Scene();
+  // gloss needs something to reflect. Generated per viewer rather than shared:
+  // a PMREM texture belongs to the WebGL context that produced it, and each
+  // viewer owns its own renderer.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 1.1));
-  const key = new THREE.DirectionalLight(0xfff2d9, 2.4);
+  // dialled back from the un-lit-environment values: the env map now carries
+  // most of the fill, and these only add shape and a warm rim
+  scene.add(new THREE.AmbientLight(0xffffff, LOOK.ambient));
+  const key = new THREE.DirectionalLight(0xfff2d9, LOOK.key);
   key.position.set(3, 4, 5);
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0xffa93e, 1.1);
+  const rim = new THREE.DirectionalLight(0xffa93e, LOOK.rim);
   rim.position.set(-4, -2, -3);
   scene.add(rim);
 
@@ -74,6 +143,10 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   let disposed = false;
   let currentModel = null;
+  // the scenes are static (spin is off), so redraw only when something
+  // actually changes rather than re-rendering all seven viewers every frame
+  let needsRender = true;
+  const invalidate = () => { needsRender = true; };
 
   function setModel(url, modelDistanceScale = distanceScale, modelVerticalAnchor = verticalAnchor, modelYaw = yaw) {
     if (currentModel) {
@@ -99,6 +172,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
       rig.updateMatrixWorld(true);
       resize();
       frameObject(pivot, camera, modelDistanceScale, modelVerticalAnchor);
+      invalidate();
     });
   }
 
@@ -134,6 +208,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
       lastY = event.clientY;
       rig.rotation.y += dx * ROTATE_SPEED;
       rig.rotation.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, rig.rotation.x + dy * ROTATE_SPEED));
+      invalidate();
     };
     const onPointerUp = (event) => {
       if (!dragging) return;
@@ -166,6 +241,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     renderer.setSize(clientWidth, clientHeight, false);
     camera.aspect = clientWidth / clientHeight;
     camera.updateProjectionMatrix();
+    invalidate();
   }
 
   const resizeObserver = new ResizeObserver(resize);
@@ -175,7 +251,12 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   function tick(deltaSeconds) {
     if (disposed) return;
-    if (!autoRotatePaused) rig.rotation.y += deltaSeconds * spinSpeed;
+    if (spinSpeed && !autoRotatePaused) {
+      rig.rotation.y += deltaSeconds * spinSpeed;
+      needsRender = true;
+    }
+    if (!needsRender) return;
+    needsRender = false;
     renderer.render(scene, camera);
   }
 
