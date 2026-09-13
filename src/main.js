@@ -10,7 +10,7 @@ const renderLoop = createRenderLoop();
 const app = document.getElementById("app");
 
 const CARD_DISTANCE_SCALE = 2.05;
-const MASCOT_DISTANCE_SCALE = 1.85;
+const MASCOT_DISTANCE_SCALE = 1.02;
 const FADE_SETTLE_TIMEOUT = 320;
 
 const state = {
@@ -224,10 +224,6 @@ function buildDetailView(characterId) {
   panel.style.background = gradientCss(character);
   panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
 
-  const canvas = document.createElement("canvas");
-  canvas.className = "detail-mascot-canvas";
-  canvas.setAttribute("aria-hidden", "true");
-  panel.appendChild(canvas);
 
   const info = document.createElement("div");
   info.className = "detail-info";
@@ -243,11 +239,21 @@ function buildDetailView(characterId) {
   panel.appendChild(buildClips());
 
   body.appendChild(panel);
+
+  const canvas = document.createElement("canvas");
+  canvas.className = "detail-mascot-canvas";
+  canvas.setAttribute("aria-hidden", "true");
+  canvas.style.setProperty("--detail-shift-x", `${character.detailShiftX ?? 0}%`);
+  canvas.style.setProperty("--detail-shift-y", `${character.detailShiftY ?? 0}%`);
+  body.appendChild(canvas);
+
   view.appendChild(body);
 
   mainViewer = createViewer(canvas, {
     modelUrl: character.model,
-    distanceScale: MASCOT_DISTANCE_SCALE * (character.zoomAdjust ?? 1),
+    distanceScale: MASCOT_DISTANCE_SCALE * (character.detailZoom ?? 1),
+    verticalAnchor: character.detailAnchor ?? 0,
+    yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
     spinSpeed: 0,
     interactive: true,
   });

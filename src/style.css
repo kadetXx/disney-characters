@@ -35,7 +35,6 @@ body {
   background: var(--color-bg);
   color: var(--color-ink);
   font-family: var(--font-body);
-  overflow-x: hidden;
 }
 
 button {
@@ -54,7 +53,11 @@ img {
 .page {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  /* exactly the viewport, with dvh tracking mobile browser chrome where
+     supported; the plain vh line is the fallback */
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* Nav */
@@ -335,17 +338,18 @@ img {
 /* ---------------------------------------------------------------- */
 
 .detail-view {
-  display: flex;
-  flex-direction: column;
+  position: relative;
   flex: 1;
   min-height: 0;
 }
 
+/* Close sits above the panel's top edge, right-aligned (reference: ~23% down) */
 .close-row {
-  display: flex;
-  justify-content: flex-end;
-  padding: 22px var(--nav-pad-x) 0;
-  flex-shrink: 0;
+  position: absolute;
+  top: clamp(16px, 7vh, 90px);
+  right: 0;
+  padding: 0 var(--nav-pad-x);
+  z-index: 4;
 }
 
 .close-btn {
@@ -366,25 +370,23 @@ img {
 }
 
 .detail-body {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: row;
-  min-height: 0;
-  padding: 10px 0 24px;
+  /* fills the view outright -- a percentage height here resolves against a
+     flex-sized parent with no definite height and collapses to nothing */
+  position: absolute;
+  inset: 0;
 }
 
 .detail-rail {
   position: absolute;
   top: 0;
   left: 0;
-  bottom: 24px;
-  width: clamp(70px, 8vw, 110px);
+  bottom: 0;
+  width: clamp(56px, 6vw, 110px);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: clamp(28px, 6vh, 72px);
   z-index: 3;
 }
 
@@ -393,7 +395,8 @@ img {
   transform: rotate(180deg);
   white-space: nowrap;
   font-family: var(--font-display);
-  font-size: 22px;
+  font-weight: 600;
+  font-size: clamp(26px, 3.2vw, 46px);
   color: var(--color-ink);
   outline: none;
   transition: color 150ms ease;
@@ -401,12 +404,11 @@ img {
 
 .rail-tab:not(.is-active) {
   font-weight: 500;
-  font-size: 17px;
+  font-size: clamp(18px, 2vw, 28px);
   color: var(--color-muted-2);
 }
 
 .rail-tab.is-active {
-  font-weight: 600;
   cursor: default;
 }
 
@@ -418,7 +420,7 @@ img {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: clamp(20px, 4vh, 48px);
 }
 
 .rail-chevron {
@@ -433,26 +435,31 @@ img {
 
 .detail-panel {
   position: absolute;
-  top: clamp(70px, 12vh, 110px);
-  left: clamp(160px, 20vw, 290px);
+  /* reference: panel starts ~30% down the viewport and ~14% in from the left */
+  top: clamp(90px, 22vh, 280px);
+  left: clamp(76px, 14vw, 300px);
   right: 0;
   bottom: 0;
-  border-radius: clamp(36px, 5vw, 64px) 0 0 0;
-  padding: clamp(28px, 4vw, 56px) clamp(28px, 5vw, 64px);
+  border-radius: clamp(36px, 5vw, 76px) 0 0 0;
+  padding: clamp(26px, 4vw, 60px) clamp(26px, 5vw, 70px);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 32px;
-  overflow: hidden;
+  gap: clamp(20px, 3vh, 40px);
+  /* deliberately not clipping: the character overlaps this panel on every side,
+     running above its top edge and off the bottom of the viewport */
 }
 
+/* Sibling of the panel rather than a child, so it paints over the panel and
+   isn't bound by its padding box. Overscans below the viewport because the
+   character is meant to run off the bottom edge, as in the reference. */
 .detail-mascot-canvas {
   position: absolute;
-  top: -18%;
-  left: clamp(20px, 3vw, 48px);
-  width: clamp(180px, 20vw, 320px);
-  height: clamp(210px, 24vw, 370px);
-  z-index: 1;
+  left: calc(3% + var(--detail-shift-x, 0%));
+  top: calc(-11% + var(--detail-shift-y, 0%));
+  width: 54%;
+  height: 118%;
+  z-index: 2;
   pointer-events: none;
 }
 
@@ -462,7 +469,7 @@ img {
   justify-content: space-between;
   align-items: flex-start;
   gap: 40px;
-  padding-left: clamp(200px, 22vw, 300px);
+  padding-left: clamp(210px, 33.5vw, 620px);
   position: relative;
   z-index: 2;
 }
@@ -519,7 +526,7 @@ img {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding-left: clamp(200px, 22vw, 300px);
+  padding-left: clamp(210px, 33.5vw, 620px);
   position: relative;
   z-index: 2;
   min-height: 0;
@@ -552,8 +559,8 @@ img {
 
 .clip-card {
   position: relative;
-  width: clamp(190px, 20vw, 300px);
-  height: clamp(130px, 13vw, 190px);
+  width: clamp(150px, 15.5vw, 340px);
+  height: clamp(95px, 9.7vw, 215px);
   flex-shrink: 0;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.14);
