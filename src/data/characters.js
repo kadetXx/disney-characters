@@ -34,8 +34,9 @@ export const characters = [
     verticalAnchor: 0.381,
     panelRatio: 0.95,
     shiftX: -7,
-    detailZoom: 1.1,
+    detailZoom: 1.25,
     detailShiftX: -3,
+    detailShiftY: -3,
   },
   {
     id: "sadness",
@@ -50,8 +51,9 @@ export const characters = [
     verticalAnchor: 0.485,
     panelRatio: 0.75,
     yawDeg: 25,
-    detailZoom: 1.1,
+    detailZoom: 1.27,
     detailShiftY: -6,
+    detailShiftX: 4,
   },
   {
     id: "disgust",
@@ -65,8 +67,9 @@ export const characters = [
     zoomAdjust: 0.579,
     verticalAnchor: 0.465,
     panelRatio: 0.86,
-    detailZoom: 1.19,
+    detailZoom: 1.401,
     detailShiftY: -6,
+    detailShiftX: 2,
   },
   {
     id: "judy",
@@ -81,8 +84,9 @@ export const characters = [
     verticalAnchor: 0.33,
     panelRatio: 1.03,
     shiftX: -4,
-    detailZoom: 1.1,
-    detailShiftY: -6,
+    detailZoom: 1.19,
+    detailShiftY: -8,
+    detailShiftX: 2,
   },
   {
     id: "moana",
@@ -96,8 +100,9 @@ export const characters = [
     zoomAdjust: 0.598,
     verticalAnchor: 0.396,
     panelRatio: 1.1,
-    detailZoom: 1.19,
+    detailZoom: 1.312,
     detailShiftY: -6,
+    detailShiftX: 5,
   },
   {
     id: "vanellope",
@@ -112,8 +117,9 @@ export const characters = [
     verticalAnchor: 0.52,
     panelRatio: 0.71,
     shiftX: -9,
-    detailZoom: 1.1,
-    detailShiftY: -6,
+    detailZoom: 1.213,
+    detailShiftY: -10,
+    detailShiftX: 2,
   },
 ];
 
