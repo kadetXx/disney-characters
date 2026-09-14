@@ -54,6 +54,24 @@ function detailFraming(character) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
+const CORNERS = [
+  "borderTopLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomRightRadius",
+  "borderBottomLeftRadius",
+];
+
+// computed corner radii in px, so the card's 28px corners can morph into the
+// detail panel's single huge top-left corner
+function readCorners(el) {
+  const style = getComputedStyle(el);
+  return Object.fromEntries(CORNERS.map((corner) => [corner, style[corner]]));
+}
+
+function rectStyle(rect) {
+  return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+}
+
 const lerpRect = (a, b, t) => ({
   left: lerp(a.left, b.left, t),
   top: lerp(a.top, b.top, t),
@@ -510,6 +528,13 @@ function flyToDetail(character, cardCanvas) {
   const from = cardCanvas.getBoundingClientRect();
   if (!from.width || !from.height) return false;
 
+  // the card's coloured panel, measured before the grid is torn down -- the
+  // detail panel will start life at exactly this box so it reads as this card
+  // growing rather than a new panel appearing
+  const cardPanel = cardCanvas.closest(".char-card")?.querySelector(".char-card-panel");
+  const panelFrom = cardPanel?.getBoundingClientRect();
+  const panelFromCorners = cardPanel ? readCorners(cardPanel) : null;
+
   // hand the viewer to the flight before clearViewers() can dispose it
   state.viewers = state.viewers.filter((v) => v !== viewer);
 
@@ -525,6 +550,65 @@ function flyToDetail(character, cardCanvas) {
   const target = view.querySelector(".detail-mascot-canvas");
   const to = target.getBoundingClientRect();
   target.style.visibility = "hidden";
+
+  // Grow the REAL detail panel from the card's box rather than cross-fading a
+  // copy: both already carry the same character gradient, so starting it at
+  // the card's rect and corners makes it the same object visually. Animating
+  // the box itself (not a transform: scale) is what keeps the corner radii
+  // circular and the gradient unstretched while it grows.
+  const panel = view.querySelector(".detail-panel");
+  if (panel && panelFrom) {
+    const panelTo = panel.getBoundingClientRect();
+    const panelToCorners = readCorners(panel);
+    // Contents stay hidden while the box resizes. visibility, not just opacity:
+    // they are laid out against the panel's *current* (smaller) width, so at
+    // any opacity above zero the badge spills past the panel's right edge and
+    // the description is clipped mid-sentence. They appear only once the box
+    // is close enough to final size for the layout to be the real one.
+    const contents = [...panel.children];
+    gsap.set(contents, { opacity: 0, visibility: "hidden" });
+    // While growing, the panel sweeps across the rail's column (which it never
+    // touches once settled, sitting at --detail-inset). The rail is z-index 3,
+    // so without this its vertical name labels show straight through the
+    // growing box. Cleared on landing so normal stacking resumes.
+    gsap.set(panel, {
+      position: "fixed",
+      zIndex: 5,
+      ...rectStyle(panelFrom),
+      ...panelFromCorners,
+    });
+    // The corners are deliberately NOT part of this tween. Growing the radius
+    // alongside the box makes the card stop reading as itself early on -- it
+    // should keep its own 28px corners while it travels and only take the
+    // detail panel's big sweep once it is essentially in position (by which
+    // point three of the four corners have left the screen anyway).
+    gsap.to(panel, {
+      ...panelToCorners,
+      duration: FLIGHT_SECONDS * 0.34,
+      ease: "power2.inOut",
+      delay: FLIGHT_SECONDS * 0.66,
+    });
+
+    gsap.to(panel, {
+      ...rectStyle(panelTo),
+      duration: FLIGHT_SECONDS,
+      ease: "power3.inOut",
+      onComplete() {
+        // hand the panel back to the stylesheet's own layout
+        gsap.set(panel, { clearProps: "position,zIndex,left,top,width,height," + CORNERS.join(",") });
+        gsap.set(contents, { clearProps: "visibility" });
+      },
+    });
+    gsap.to(contents, {
+      opacity: 1,
+      visibility: "visible",
+      duration: 0.3,
+      ease: "power2.out",
+      // power3.inOut has the box ~95% grown by here, so the text lands in a
+      // layout that is already the final one
+      delay: FLIGHT_SECONDS * 0.72,
+    });
+  }
 
   const stageRect = unionRect(from, to);
   cardCanvas.classList.add("flight-canvas");
@@ -550,9 +634,11 @@ function flyToDetail(character, cardCanvas) {
   };
   apply(0);
 
-  // opacity only, no transform -- the panel must not move the layout while the
-  // character is flying toward a rect measured against it
-  gsap.fromTo(view, { opacity: 0 }, { opacity: 1, duration: 0.34, ease: "power2.out" });
+  // Opacity only, never transform: the panel and character are both flying
+  // toward rects measured against this layout, so it must not move. The panel
+  // itself is excluded -- it grows opaque rather than fading in.
+  const chrome = [view.querySelector(".close-row"), view.querySelector(".detail-rail")].filter(Boolean);
+  gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.34, ease: "power2.out", delay: 0.12 });
 
   const progress = { t: 0 };
   gsap.to(progress, {
