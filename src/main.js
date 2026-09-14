@@ -136,12 +136,12 @@ function buildGridView() {
   // back in would make each card's scale depend on its own previous scale.
   const EDGE_SCALE_MIN = 0.74;
   // Where along the x axis shrinking starts and finishes, in card-pitch units
-  // measured from the scrollport edge. 0 means a card holds full size until its
-  // outer edge actually reaches the edge of the screen; negative would start it
-  // while still inside. Keeping the trigger at the edge leaves everything in
-  // the middle perfectly still, so only the cards genuinely leaving move.
-  const EDGE_TRIGGER = 0;
-  const EDGE_FULL = 1.2;
+  // measured from the scrollport edge. Negative starts it while the card is
+  // still inside the port; 0 would hold full size right up until the outer
+  // edge touches the screen edge. Both boundaries move together so the ramp
+  // keeps its length -- only the point it engages shifts.
+  const EDGE_TRIGGER = -0.35;
+  const EDGE_FULL = 0.85;
   let edgeFrame = null;
   function syncEdgeScale() {
     edgeFrame = null;
