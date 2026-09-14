@@ -32,8 +32,13 @@ const LOOK = {
   toneMapping: 'neutral',   // 'aces' | 'neutral' | 'linear' | 'none'
   albedo: 0.8,
   normalScale: 1.6,
-  clearcoat: 0.35,
+  // two independent sources of shine: the clearcoat lacquer layer, and the
+  // base material's own specular reflection of the environment. Zero both for
+  // a fully matte finish -- the env map still lights the characters diffusely,
+  // so the colour richness is unaffected either way.
+  clearcoat: 0.0,
   clearcoatRoughness: 0.3,
+  specularIntensity: 0.15,
   envIntensity: 0.25,
   exposure: 0.9,
   ambient: 0.1,
@@ -59,6 +64,7 @@ function toGlossy(m) {
     alphaTest: m.alphaTest, side: m.side, vertexColors: m.vertexColors,
     metalness: m.metalness,
     roughness: m.roughness,
+    specularIntensity: GLOSS.specularIntensity,
     clearcoat: GLOSS.clearcoat,
     clearcoatRoughness: GLOSS.clearcoatRoughness,
     envMapIntensity: GLOSS.envIntensity,
