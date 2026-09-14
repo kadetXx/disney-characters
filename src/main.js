@@ -148,7 +148,8 @@ function buildGridView() {
 // drop-shadow has no spread parameter the way box-shadow does, so the two
 // levers are blur distance and colour alpha: push blur up and alpha down for a
 // wider, softer halo; pull blur in and alpha up for a tighter, punchier one.
-const AURA = { blur: "10px", alpha: 1.0 };
+// nice value: const AURA = { blur: "45px", alpha: 0.4 };
+const AURA = { blur: "50px", alpha: 0.4 };
 
 function rgba(hex, a) {
   const n = parseInt(hex.slice(1), 16);
