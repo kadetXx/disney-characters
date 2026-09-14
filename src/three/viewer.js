@@ -19,14 +19,26 @@ const modelCache = new Map();
 // ambient vs key is the other lever -- a low ambient with a strong key is what
 // gives them shape instead of looking evenly lit from everywhere.
 const LOOK = {
-  maxRoughness: 0.78,
-  clearcoat: 0.1,
-  clearcoatRoughness: 0.35,
-  envIntensity: 0.1,
-  exposure: 0.7,
-  ambient: 0.06,
-  key: 2.1,
-  rim: 0.35,
+  // Deliberately NOT clamping roughness. A Math.min() clamp can only ever make
+  // a material shinier, so anything authored matte (knit wool, soft cloth) got
+  // dragged glossy against its own definition while already-smooth models
+  // passed through untouched -- which is why only some characters read wrong.
+  // The clearcoat is additive instead: a thin lacquer over the top that leaves
+  // each model's authored matte/shiny balance intact.
+  // These models bake their lighting into the base colour texture, so the
+  // albedo arrives already bright and evenly lit -- which is why scene lighting
+  // alone barely moves them. albedo multiplies that texture down; normalScale
+  // deepens the relief the normal map already carries.
+  toneMapping: 'neutral',   // 'aces' | 'neutral' | 'linear' | 'none'
+  albedo: 0.8,
+  normalScale: 1.6,
+  clearcoat: 0.35,
+  clearcoatRoughness: 0.3,
+  envIntensity: 0.25,
+  exposure: 0.9,
+  ambient: 0.1,
+  key: 2.0,
+  rim: 0.5,
 };
 const GLOSS = LOOK;
 
@@ -36,15 +48,17 @@ const GLOSS = LOOK;
 function toGlossy(m) {
   if (!m || !m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) return m;
   const g = new THREE.MeshPhysicalMaterial({
-    color: m.color, map: m.map,
-    normalMap: m.normalMap, normalScale: m.normalScale,
+    color: new THREE.Color(GLOSS.albedo, GLOSS.albedo, GLOSS.albedo).multiply(m.color ?? new THREE.Color(1, 1, 1)),
+    map: m.map,
+    normalMap: m.normalMap,
+    normalScale: (m.normalScale ?? new THREE.Vector2(1, 1)).clone().multiplyScalar(GLOSS.normalScale),
     roughnessMap: m.roughnessMap, metalnessMap: m.metalnessMap,
     aoMap: m.aoMap, aoMapIntensity: m.aoMapIntensity,
     emissive: m.emissive, emissiveMap: m.emissiveMap, emissiveIntensity: m.emissiveIntensity,
     alphaMap: m.alphaMap, transparent: m.transparent, opacity: m.opacity,
     alphaTest: m.alphaTest, side: m.side, vertexColors: m.vertexColors,
     metalness: m.metalness,
-    roughness: Math.min(m.roughness ?? 1, GLOSS.maxRoughness),
+    roughness: m.roughness,
     clearcoat: GLOSS.clearcoat,
     clearcoatRoughness: GLOSS.clearcoatRoughness,
     envMapIntensity: GLOSS.envIntensity,
@@ -115,8 +129,14 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  // highlights from the env map blow out without this
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // ACES has a strong shoulder that re-lifts the midrange, which mutes albedo
+  // and exposure changes; the flatter curves respond much more directly
+  renderer.toneMapping = {
+    aces: THREE.ACESFilmicToneMapping,
+    neutral: THREE.NeutralToneMapping,
+    linear: THREE.LinearToneMapping,
+    none: THREE.NoToneMapping,
+  }[LOOK.toneMapping] ?? THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = LOOK.exposure;
 
   const scene = new THREE.Scene();
