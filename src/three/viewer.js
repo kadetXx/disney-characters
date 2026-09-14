@@ -43,7 +43,11 @@ const LOOK = {
   exposure: 0.9,
   ambient: 0.1,
   key: 2.0,
-  rim: 0.5,
+  rim: 1.2,
+  // a rim light has to GRAZE the silhouette to register. Sat straight behind
+  // the character it only lights surfaces facing away from camera, so it was
+  // invisible; out to the side and slightly behind catches the visible edge.
+  rimPos: [-6, 1.2, -1.2],
 };
 const GLOSS = LOOK;
 
@@ -131,7 +135,7 @@ function frameObject(pivot, camera, distanceScale, verticalAnchor = 0) {
   pivot.position.y -= verticalAnchor * size.y;
 }
 
-export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAnchor = 0, yaw = 0, spinSpeed = 0.25, interactive = false, preserveDrawingBuffer = false, onReady }) {
+export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAnchor = 0, yaw = 0, rimColor = 0xffa93e, spinSpeed = 0.25, interactive = false, preserveDrawingBuffer = false, onReady }) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -160,8 +164,10 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   const key = new THREE.DirectionalLight(0xfff2d9, LOOK.key);
   key.position.set(3, 4, 5);
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0xffa93e, LOOK.rim);
-  rim.position.set(-4, -2, -3);
+  // tinted to the character's own card accent so they read as lit by their
+  // panel rather than pasted onto it
+  const rim = new THREE.DirectionalLight(rimColor, LOOK.rim);
+  rim.position.set(...LOOK.rimPos);
   scene.add(rim);
 
   const rig = new THREE.Group();

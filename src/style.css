@@ -224,6 +224,11 @@ img {
      hair) would otherwise get shrunk just to squeeze its width inside the
      card. Letting the canvas run past the card edges keeps those characters
      full-size and lets them spill over the card the way the reference does. */
+  /* accent halo. Done in CSS rather than as a 3D rim light because a rim needs
+     specular reflection to produce its bright edge, and these materials are
+     matte -- the light is there but has nothing to glint off. This traces the
+     rendered silhouette exactly and costs nothing per frame. */
+  filter: drop-shadow(0 0 var(--aura-size, 10px) var(--aura, transparent));
   top: -60%;
   left: calc(-25% + var(--shift-x, 0%));
   width: 150%;

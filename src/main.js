@@ -50,6 +50,8 @@ function buildCharacterCard(character) {
   canvasWrap.className = "char-card-canvas-wrap";
   // horizontal nudge for poses that should spill off the card (Rosetta's gown)
   canvasWrap.style.setProperty("--shift-x", `${character.shiftX ?? 0}%`);
+  canvasWrap.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
+  canvasWrap.style.setProperty("--aura-size", AURA.blur);
   const canvas = document.createElement("canvas");
   canvas.setAttribute("aria-hidden", "true");
   canvasWrap.appendChild(canvas);
@@ -72,6 +74,7 @@ function buildCharacterCard(character) {
     distanceScale: CARD_DISTANCE_SCALE * (character.zoomAdjust ?? 1),
     verticalAnchor: character.verticalAnchor ?? 0,
     yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
+    rimColor: character.rimColor ?? character.gradient[0],
     spinSpeed: 0,
   });
   renderLoop.add(viewer);
@@ -141,6 +144,16 @@ function buildGridView() {
 /* ------------------------------------------------------------------ */
 /* Detail view                                                        */
 /* ------------------------------------------------------------------ */
+
+// drop-shadow has no spread parameter the way box-shadow does, so the two
+// levers are blur distance and colour alpha: push blur up and alpha down for a
+// wider, softer halo; pull blur in and alpha up for a tighter, punchier one.
+const AURA = { blur: "10px", alpha: 1.0 };
+
+function rgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
 
 const BADGE_COLORS = ["#7B4FA0", "#C97B2E", "#3FA6A0", "#D6C232"];
 
@@ -254,6 +267,7 @@ function buildDetailView(characterId) {
     distanceScale: MASCOT_DISTANCE_SCALE * (character.detailZoom ?? 1),
     verticalAnchor: character.detailAnchor ?? 0,
     yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
+    rimColor: character.rimColor ?? character.gradient[0],
     spinSpeed: 0,
     interactive: true,
   });
