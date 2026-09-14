@@ -135,6 +135,13 @@ function buildGridView() {
   // getBoundingClientRect -- that reports the *transformed* box, so feeding it
   // back in would make each card's scale depend on its own previous scale.
   const EDGE_SCALE_MIN = 0.74;
+  // Where along the x axis shrinking starts and finishes, in card-pitch units
+  // measured from the scrollport edge. 0 means a card holds full size until its
+  // outer edge actually reaches the edge of the screen; negative would start it
+  // while still inside. Keeping the trigger at the edge leaves everything in
+  // the middle perfectly still, so only the cards genuinely leaving move.
+  const EDGE_TRIGGER = 0;
+  const EDGE_FULL = 1.2;
   let edgeFrame = null;
   function syncEdgeScale() {
     edgeFrame = null;
@@ -155,7 +162,8 @@ function buildGridView() {
     const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
     const leftPull = Math.min(1, viewLeft / pitch);
     const rightPull = Math.min(1, (maxScroll - viewLeft) / pitch);
-    const ramp = (over) => Math.min(1, Math.max(0, (over + 1) / 2));
+    const ramp = (over) =>
+      Math.min(1, Math.max(0, (over - EDGE_TRIGGER) / (EDGE_FULL - EDGE_TRIGGER)));
 
     cards.forEach((card, i) => {
       const left = pad + i * pitch;
