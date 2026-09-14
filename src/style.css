@@ -481,6 +481,18 @@ img {
 /* Sibling of the panel rather than a child, so it paints over the panel and
    isn't bound by its padding box. Overscans below the viewport because the
    character is meant to run off the bottom edge, as in the reference. */
+/* A character in transit between the card and the detail layout. Pinned to the
+   viewport so neither view's scroll or overflow can clip it, and above
+   everything because it passes over the nav and the rail on the way.
+   Deliberately no drop-shadow: the aura is a 50px blur over a canvas whose
+   contents change every frame, so it cannot be cached and re-rasterises the
+   whole box each time -- far too expensive to carry through a transition. */
+.flight-canvas {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+}
+
 .detail-mascot-canvas {
   position: absolute;
   left: calc(3% + var(--detail-shift-x, 0%));

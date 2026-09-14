@@ -99,29 +99,44 @@ function loadModel(url) {
   return modelCache.get(url);
 }
 
-function frameObject(pivot, camera, distanceScale, verticalAnchor = 0) {
+// Measured once per model, kept apart from the framing below so framing can be
+// re-derived every frame (for the card->detail flight, and on resize) without
+// re-running Box3 over the mesh -- and so it stays idempotent: the old
+// single-shot version did pivot.position.sub(center), which only lands
+// correctly when the pivot starts at the origin.
+function measureObject(pivot) {
   // measure AFTER any rotation has been applied to the pivot, so the fit is
   // computed against the silhouette actually being rendered rather than the
   // untwisted one (a turned character presents a different width/height).
   const box = new THREE.Box3().setFromObject(pivot);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  // move the pivot (not the model) so the measured centre lands on the origin
-  pivot.position.sub(center);
+  return {
+    size: box.getSize(new THREE.Vector3()),
+    center: box.getCenter(new THREE.Vector3()),
+  };
+}
 
+// The camera distance that fits this object inside a viewport of the given
+// aspect. Shared by both framing paths so they cannot drift apart.
+function fitDistanceFor({ size }, verticalFov, aspect, verticalAnchor) {
   // fit both extents, not just height, or a wide object looks tiny on a wide canvas
-  const verticalFov = (camera.fov * Math.PI) / 180;
-  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
-
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
   const distanceForHeight = size.y / 2 / Math.tan(verticalFov / 2);
   const distanceForWidth = size.x / 2 / Math.tan(horizontalFov / 2);
-  let fitDistance = Math.max(distanceForHeight, distanceForWidth, size.z) || 1;
-
+  const fit = Math.max(distanceForHeight, distanceForWidth, size.z) || 1;
   // the tight fit above touches the frame on all sides with zero margin, so
   // shifting the object down by verticalAnchor afterward would push its feet
   // straight through the bottom of the frustum. Pull the camera back first
   // (in proportion to the shift) to open up exactly enough headroom.
-  fitDistance *= 1 + 2 * Math.abs(verticalAnchor);
+  return fit * (1 + 2 * Math.abs(verticalAnchor));
+}
+
+function applyFraming(pivot, camera, measurement, distanceScale, verticalAnchor = 0) {
+  const { size, center } = measurement;
+  // move the pivot (not the model) so the measured centre lands on the origin
+  pivot.position.set(-center.x, -center.y, -center.z);
+
+  const verticalFov = (camera.fov * Math.PI) / 180;
+  const fitDistance = fitDistanceFor(measurement, verticalFov, camera.aspect, verticalAnchor);
 
   camera.position.set(0, 0, fitDistance * distanceScale);
   camera.near = fitDistance / 100;
@@ -133,6 +148,51 @@ function frameObject(pivot, camera, distanceScale, verticalAnchor = 0) {
   // character and still anchor its feet low instead of centring it in all that
   // room, leaving headroom above for tall poses to protrude into.
   pivot.position.y -= verticalAnchor * size.y;
+}
+
+// Frames the character so it appears exactly where it WOULD appear if it had a
+// canvas of its own occupying `rect` -- while actually being drawn into a
+// different, larger canvas occupying `canvasRect`. Both rects are viewport CSS
+// pixels.
+//
+// This is what lets the flight animate without ever resizing its canvas.
+// Assigning canvas.width/height reallocates the whole backing store (megabytes
+// per frame at retina detail size) and wipes it, which is what made the first
+// attempt flash and teleport. Here the canvas is allocated once at the union of
+// the two rects and never touched again: the character is moved and grown
+// purely by camera distance and pivot offset, which is a few multiplications.
+function applyProjectedFraming(pivot, camera, measurement, rect, canvasRect, distanceScale, verticalAnchor = 0) {
+  const { size, center } = measurement;
+  const verticalFov = (camera.fov * Math.PI) / 180;
+
+  // the distance a canvas of exactly `rect` would have used
+  const rectDistance =
+    fitDistanceFor(measurement, verticalFov, rect.width / rect.height, verticalAnchor) * distanceScale;
+
+  // vertical FOV maps canvas HEIGHT to world height, so to keep the character
+  // the same size on screen while drawing into a taller canvas, pull back in
+  // proportion to the height ratio
+  const distance = rectDistance * (canvasRect.height / rect.height);
+  camera.position.set(0, 0, distance);
+  camera.near = distance / 100;
+  camera.far = distance * 100;
+  camera.updateProjectionMatrix();
+
+  // where the character's centre sits on screen under `rect`: the rect's own
+  // centre, pushed down by the anchor (expressed in rect pixels)
+  const rectWorldHeight = 2 * rectDistance * Math.tan(verticalFov / 2);
+  const anchorShiftPx = ((verticalAnchor * size.y) / rectWorldHeight) * rect.height;
+  const screenX = rect.left + rect.width / 2;
+  const screenY = rect.top + rect.height / 2 + anchorShiftPx;
+
+  // ...and how far that is from the centre of the canvas we're really drawing
+  // into, converted to world units at the new distance
+  const worldPerPixel = (2 * distance * Math.tan(verticalFov / 2)) / canvasRect.height;
+  const offsetX = (screenX - (canvasRect.left + canvasRect.width / 2)) * worldPerPixel;
+  // screen Y grows downward, world Y grows upward
+  const offsetY = -(screenY - (canvasRect.top + canvasRect.height / 2)) * worldPerPixel;
+
+  pivot.position.set(-center.x + offsetX, -center.y + offsetY, -center.z);
 }
 
 /* ------------------------------------------------------------------ */
@@ -241,10 +301,55 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   let disposed = false;
   let currentModel = null;
+  // the model's measured bounds plus whichever framing is currently applied,
+  // held so framing can be re-derived on resize (the fit depends on aspect)
+  // and driven frame by frame during the flight
+  let measurement = null;
+  let framing = { distanceScale, verticalAnchor };
+  // When set, the character is being framed as though it occupied some other
+  // rect (the flight). Held so a resize re-applies the SAME framing mode --
+  // otherwise the ResizeObserver, which fires as soon as the flight sets the
+  // canvas's CSS box, would reset the character to plain centred framing
+  // in the middle of the move.
+  let projection = null;
+  // likewise remembered, so an incidental resize doesn't silently restore
+  // full-resolution rendering and undo the flight's reduced buffer
+  let renderScale = 1;
   // the scenes are static (spin is off), so redraw only when something
   // actually changes rather than re-rendering all seven viewers every frame
   let needsRender = true;
   const invalidate = () => { needsRender = true; };
+
+  function setFraming(nextDistanceScale = framing.distanceScale, nextVerticalAnchor = framing.verticalAnchor) {
+    framing = { distanceScale: nextDistanceScale, verticalAnchor: nextVerticalAnchor };
+    projection = null;
+    if (!measurement || !currentModel) return;
+    applyFraming(currentModel, camera, measurement, framing.distanceScale, framing.verticalAnchor);
+    invalidate();
+  }
+
+  // re-applies whichever framing mode is currently in effect
+  function reframe() {
+    if (!measurement || !currentModel) return;
+    if (projection) {
+      applyProjectedFraming(
+        currentModel, camera, measurement, projection.rect, projection.canvasRect,
+        framing.distanceScale, framing.verticalAnchor
+      );
+    } else {
+      applyFraming(currentModel, camera, measurement, framing.distanceScale, framing.verticalAnchor);
+    }
+    invalidate();
+  }
+
+  // draws the character as though it occupied `rect`, while really rendering
+  // into this viewer's (larger, fixed) canvas at `canvasRect` -- see
+  // applyProjectedFraming
+  function setProjectedFraming(rect, canvasRect, nextDistanceScale, nextVerticalAnchor) {
+    framing = { distanceScale: nextDistanceScale, verticalAnchor: nextVerticalAnchor };
+    projection = { rect, canvasRect };
+    reframe();
+  }
 
   function setModel(url, modelDistanceScale = distanceScale, modelVerticalAnchor = verticalAnchor, modelYaw = yaw) {
     if (currentModel) {
@@ -269,8 +374,8 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
       rig.add(pivot);
       rig.updateMatrixWorld(true);
       resize();
-      frameObject(pivot, camera, modelDistanceScale, modelVerticalAnchor);
-      invalidate();
+      measurement = measureObject(pivot);
+      setFraming(modelDistanceScale, modelVerticalAnchor);
     });
   }
 
@@ -339,24 +444,48 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   let cssWidth = 0;
   let cssHeight = 0;
 
-  function resize() {
-    const { clientWidth, clientHeight } = canvas;
-    if (!clientWidth || !clientHeight) return;
-    cssWidth = clientWidth;
-    cssHeight = clientHeight;
+  // Takes the size directly rather than reading it off the element, so callers
+  // can drive it without forcing a layout read. renderScale below 1 renders
+  // fewer pixels and lets the browser scale the bitmap up to the element's box
+  // -- worth it while something is moving, where the softness is invisible.
+  function setSize(width, height, nextRenderScale = renderScale) {
+    if (!width || !height) return;
+    renderScale = nextRenderScale;
+    const nextWidth = width * renderScale;
+    const nextHeight = height * renderScale;
+    if (nextWidth === cssWidth && nextHeight === cssHeight) return;
+    cssWidth = nextWidth;
+    cssHeight = nextHeight;
     // the 2D canvas owns its own backing store now; match device pixels so the
     // blit lands 1:1 and nothing is resampled
-    canvas.width = Math.round(clientWidth * pixelRatio);
-    canvas.height = Math.round(clientHeight * pixelRatio);
-    camera.aspect = clientWidth / clientHeight;
+    canvas.width = Math.round(cssWidth * pixelRatio);
+    canvas.height = Math.round(cssHeight * pixelRatio);
+    // aspect comes from the DISPLAYED box, which renderScale leaves unchanged
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    // the fit distance is derived from the aspect, so a resize has to re-frame
+    // or the character keeps a fit computed for the old shape
+    reframe();
     invalidate();
+  }
+
+  function resize() {
+    setSize(canvas.clientWidth, canvas.clientHeight);
   }
 
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);
 
   setModel(modelUrl).then(() => onReady?.());
+
+  // Draws now rather than waiting for the loop's next frame. The flight needs
+  // this: gsap's ticker and the render loop are separate rAF callbacks, so
+  // relying on the loop leaves the canvas showing last frame's content.
+  function render() {
+    if (disposed) return;
+    needsRender = false;
+    draw(scene, camera, canvas, cssWidth, cssHeight);
+  }
 
   function tick(deltaSeconds) {
     if (disposed) return;
@@ -365,8 +494,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
       needsRender = true;
     }
     if (!needsRender) return;
-    needsRender = false;
-    draw(scene, camera, canvas, cssWidth, cssHeight);
+    render();
   }
 
   function dispose() {
@@ -387,7 +515,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   resize();
 
-  return { tick, dispose, setModel, canvas };
+  return { tick, render, dispose, setModel, setFraming, setProjectedFraming, setSize, canvas };
 }
 
 export function createRenderLoop() {
