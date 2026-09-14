@@ -127,20 +127,48 @@ function buildGridView() {
     track.scrollBy({ left: direction * (cardWidth + gap) * 2.7, behavior: "smooth" });
   }
 
-  // Items shrink as they slide out of the scrollport and return to full size
-  // coming back in. Driven off how much of each card is clipped by the port
-  // edge, so it tracks the scroll position continuously rather than snapping.
-  const EDGE_SCALE_MIN = 0.86;
+  // Items shrink as they approach and cross the scrollport edge, and return to
+  // full size coming back in. The falloff spans two cards at each edge: the
+  // outermost reaches EDGE_SCALE_MIN, the one inside it sits about halfway.
+  //
+  // Measured from layout geometry (offsetWidth / scrollLeft), never from
+  // getBoundingClientRect -- that reports the *transformed* box, so feeding it
+  // back in would make each card's scale depend on its own previous scale.
+  const EDGE_SCALE_MIN = 0.74;
   let edgeFrame = null;
   function syncEdgeScale() {
     edgeFrame = null;
-    const port = track.getBoundingClientRect();
-    for (const card of track.children) {
-      const r = card.getBoundingClientRect();
-      const clipped = Math.max(0, port.left - r.left, r.right - port.right);
-      const t = Math.min(1, clipped / r.width);
-      card.style.transform = `scale(${(1 - t * (1 - EDGE_SCALE_MIN)).toFixed(4)})`;
-    }
+    const cards = [...track.children];
+    if (!cards.length) return;
+    const cs = getComputedStyle(track);
+    const gap = parseFloat(cs.columnGap) || 0;
+    const pad = parseFloat(cs.paddingLeft) || 0;
+    const cardW = cards[0].offsetWidth;
+    const pitch = cardW + gap;
+    const viewLeft = track.scrollLeft;
+    const viewRight = viewLeft + track.clientWidth;
+
+    // Each edge only exerts pull while there is still content to scroll past
+    // it, eased over one card so it fades in rather than snapping. Without
+    // this the first card shrinks while parked at the start, where nothing is
+    // actually leaving the viewport.
+    const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+    const leftPull = Math.min(1, viewLeft / pitch);
+    const rightPull = Math.min(1, (maxScroll - viewLeft) / pitch);
+    const ramp = (over) => Math.min(1, Math.max(0, (over + 1) / 2));
+
+    cards.forEach((card, i) => {
+      const left = pad + i * pitch;
+      const right = left + cardW;
+      // in card-pitch units: -1 is a full card inside the edge, 0 straddles
+      // it, +1 is a full card beyond it
+      const t = Math.max(
+        ramp((viewLeft - left) / pitch) * leftPull,
+        ramp((right - viewRight) / pitch) * rightPull
+      );
+      const scale = (1 - t * (1 - EDGE_SCALE_MIN)).toFixed(4);
+      card.querySelector(".char-card-canvas-wrap").style.transform = `scale(${scale})`;
+    });
   }
   function queueEdgeScale() {
     if (edgeFrame === null) edgeFrame = requestAnimationFrame(syncEdgeScale);

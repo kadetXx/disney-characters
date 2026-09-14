@@ -211,11 +211,6 @@ img {
   scroll-snap-align: start;
   outline: none;
   text-align: left;
-  /* horizontally centred so a shrinking card never drifts sideways, but pinned
-     to the baseline so the cards' aligned bottoms survive the scale. Switch to
-     50% 50% for a true centre origin -- the bottoms then rise as items exit. */
-  transform-origin: 50% 100%;
-  will-change: transform;
 }
 
 .char-card-canvas-wrap {
@@ -223,6 +218,14 @@ img {
   inset: 0;
   z-index: 2;
   pointer-events: none;
+  /* only the character scales at the carousel edges, never the card. Origin is
+     the shared feet line rather than the box centre, so a shrinking character
+     stays planted on its panel instead of floating up off it. */
+  transform-origin: 50% 80%;
+  /* overshoot curve: scroll-snap settles at discrete points, so the scale
+     springs into place there rather than easing flatly */
+  transition: transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform;
 }
 
 .char-card-canvas-wrap canvas {
