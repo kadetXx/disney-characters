@@ -40,6 +40,11 @@ body {
   background: var(--color-bg);
   color: var(--color-ink);
   font-family: var(--font-body);
+  /* the page is exactly one viewport and never scrolls, so any scroll the
+     browser sees is overscroll: rubber-banding on macOS, pull-to-refresh and
+     back/forward swipe on mobile. `none` stops the bounce AND stops the
+     carousel's own wheel gestures chaining up to the document. */
+  overscroll-behavior: none;
 }
 
 button {
