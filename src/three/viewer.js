@@ -99,15 +99,26 @@ function loadModel(url) {
   return modelCache.get(url);
 }
 
-function frameObject(pivot, camera, distanceScale, verticalAnchor = 0) {
+// Measured once per model. Kept separate from applyFraming below so framing
+// can be re-derived every frame (for the card->detail flight, and on resize)
+// without re-running Box3 over the whole mesh -- and, critically, so it stays
+// idempotent: the old single-shot version did pivot.position.sub(center),
+// which only lands correctly when the pivot starts at the origin.
+function measureObject(pivot) {
   // measure AFTER any rotation has been applied to the pivot, so the fit is
   // computed against the silhouette actually being rendered rather than the
   // untwisted one (a turned character presents a different width/height).
   const box = new THREE.Box3().setFromObject(pivot);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
+  return {
+    size: box.getSize(new THREE.Vector3()),
+    center: box.getCenter(new THREE.Vector3()),
+  };
+}
+
+function applyFraming(pivot, camera, measurement, distanceScale, verticalAnchor = 0) {
+  const { size, center } = measurement;
   // move the pivot (not the model) so the measured centre lands on the origin
-  pivot.position.sub(center);
+  pivot.position.set(-center.x, -center.y, -center.z);
 
   // fit both extents, not just height, or a wide object looks tiny on a wide canvas
   const verticalFov = (camera.fov * Math.PI) / 180;
@@ -246,6 +257,19 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   let needsRender = true;
   const invalidate = () => { needsRender = true; };
 
+  // the model's measured bounds, plus whichever framing is currently applied.
+  // Held so framing can be re-derived on resize (the fit depends on camera
+  // aspect) and tweened frame by frame during the card->detail flight.
+  let measurement = null;
+  let framing = { distanceScale, verticalAnchor };
+
+  function setFraming(nextDistanceScale = framing.distanceScale, nextVerticalAnchor = framing.verticalAnchor) {
+    framing = { distanceScale: nextDistanceScale, verticalAnchor: nextVerticalAnchor };
+    if (!measurement || !currentModel) return;
+    applyFraming(currentModel, camera, measurement, framing.distanceScale, framing.verticalAnchor);
+    invalidate();
+  }
+
   function setModel(url, modelDistanceScale = distanceScale, modelVerticalAnchor = verticalAnchor, modelYaw = yaw) {
     if (currentModel) {
       rig.remove(currentModel);
@@ -269,8 +293,8 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
       rig.add(pivot);
       rig.updateMatrixWorld(true);
       resize();
-      frameObject(pivot, camera, modelDistanceScale, modelVerticalAnchor);
-      invalidate();
+      measurement = measureObject(pivot);
+      setFraming(modelDistanceScale, modelVerticalAnchor);
     });
   }
 
@@ -339,24 +363,43 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   let cssWidth = 0;
   let cssHeight = 0;
 
-  function resize() {
-    const { clientWidth, clientHeight } = canvas;
-    if (!clientWidth || !clientHeight) return;
-    cssWidth = clientWidth;
-    cssHeight = clientHeight;
+  // Takes the size directly rather than reading it off the element, so the
+  // flight can drive it every frame without forcing a layout read per frame.
+  function setSize(width, height) {
+    if (!width || !height) return;
+    if (width === cssWidth && height === cssHeight) return;
+    cssWidth = width;
+    cssHeight = height;
     // the 2D canvas owns its own backing store now; match device pixels so the
     // blit lands 1:1 and nothing is resampled
-    canvas.width = Math.round(clientWidth * pixelRatio);
-    canvas.height = Math.round(clientHeight * pixelRatio);
-    camera.aspect = clientWidth / clientHeight;
+    canvas.width = Math.round(width * pixelRatio);
+    canvas.height = Math.round(height * pixelRatio);
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    // the fit distance is derived from the aspect, so a resize has to re-frame
+    // or the character keeps a fit computed for the old shape
+    setFraming();
     invalidate();
+  }
+
+  function resize() {
+    setSize(canvas.clientWidth, canvas.clientHeight);
   }
 
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);
 
   setModel(modelUrl).then(() => onReady?.());
+
+  // Draws now, rather than waiting for the loop's next frame. The flight needs
+  // this: resizing a 2D canvas wipes it, and the loop's rAF and GSAP's are
+  // separate callbacks, so whenever the loop ran first the canvas was cleared
+  // straight after being drawn and the character vanished for the whole move.
+  function render() {
+    if (disposed) return;
+    needsRender = false;
+    draw(scene, camera, canvas, cssWidth, cssHeight);
+  }
 
   function tick(deltaSeconds) {
     if (disposed) return;
@@ -365,8 +408,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
       needsRender = true;
     }
     if (!needsRender) return;
-    needsRender = false;
-    draw(scene, camera, canvas, cssWidth, cssHeight);
+    render();
   }
 
   function dispose() {
@@ -387,7 +429,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   resize();
 
-  return { tick, dispose, setModel, canvas };
+  return { tick, render, dispose, setModel, setFraming, setSize, canvas };
 }
 
 export function createRenderLoop() {
