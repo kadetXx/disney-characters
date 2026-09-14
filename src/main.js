@@ -140,8 +140,8 @@ function buildGridView() {
   // still inside the port; 0 would hold full size right up until the outer
   // edge touches the screen edge. Both boundaries move together so the ramp
   // keeps its length -- only the point it engages shifts.
-  const EDGE_TRIGGER = -0.7;
-  const EDGE_FULL = 0.5;
+  const EDGE_TRIGGER = -0.5;
+  const EDGE_FULL = 0.7;
   let edgeFrame = null;
   function syncEdgeScale() {
     edgeFrame = null;
