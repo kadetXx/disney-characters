@@ -135,9 +135,31 @@ function frameObject(pivot, camera, distanceScale, verticalAnchor = 0) {
   pivot.position.y -= verticalAnchor * size.y;
 }
 
-export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAnchor = 0, yaw = 0, rimColor = 0xffa93e, spinSpeed = 0.25, interactive = false, preserveDrawingBuffer = false, onReady }) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+/* ------------------------------------------------------------------ */
+/* Shared stage                                                        */
+/* ------------------------------------------------------------------ */
+
+// ONE WebGL context for the whole app, on a canvas that is never in the DOM.
+// Viewers draw into a corner of it and then blit the result to their own 2D
+// canvas, which is what the user actually sees.
+//
+// Why not a context per canvas (the previous design): a GPU texture belongs to
+// the context that uploaded it, so tearing down a view's contexts threw away
+// every texture these 100MB+ models carry and the next view had to re-upload
+// all of them. modelCache only ever cached the *parsed* glTF on the JS side.
+// Sharing one context means the upload happens once for the life of the page.
+//
+// The cost is a drawImage per visible canvas whenever a viewer re-renders --
+// affordable here precisely because these scenes are static (spinSpeed is 0
+// everywhere), so that happens on load, resize and transitions, not per frame.
+let stage = null;
+function getStage() {
+  if (stage) return stage;
+
+  const canvas = document.createElement("canvas");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  const pixelRatio = Math.min(window.devicePixelRatio, 2);
+  renderer.setPixelRatio(pixelRatio);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // ACES has a strong shoulder that re-lifts the midrange, which mutes albedo
   // and exposure changes; the flatter curves respond much more directly
@@ -148,14 +170,58 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     none: THREE.NoToneMapping,
   }[LOOK.toneMapping] ?? THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = LOOK.exposure;
+  renderer.setScissorTest(true);
+
+  // built once on this context and handed to every scene, instead of each
+  // viewer generating its own copy of an identical environment
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
+
+  // grow-only: reallocating the drawing buffer is expensive, and the largest
+  // viewer (the detail mascot) sets the high-water mark for everyone
+  let width = 0;
+  let height = 0;
+  function reserve(w, h) {
+    if (w <= width && h <= height) return;
+    width = Math.max(width, Math.ceil(w));
+    height = Math.max(height, Math.ceil(h));
+    renderer.setSize(width, height, false);
+  }
+
+  // Renders into the TOP-LEFT of the stage buffer, then copies that region
+  // across. GL's viewport origin is bottom-left, so the top of the image is
+  // at y = height - h.
+  function draw(scene, camera, target, cssWidth, cssHeight) {
+    if (!cssWidth || !cssHeight) return;
+    reserve(cssWidth, cssHeight);
+    renderer.setViewport(0, height - cssHeight, cssWidth, cssHeight);
+    renderer.setScissor(0, height - cssHeight, cssWidth, cssHeight);
+    renderer.render(scene, camera);
+
+    const ctx = target.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, target.width, target.height);
+    // read back in device pixels (canvas.width is already scaled), and let the
+    // destination rect match the target's own buffer 1:1 so nothing resamples.
+    // Valid without preserveDrawingBuffer because this runs synchronously
+    // after render(), before the browser gets a chance to composite.
+    ctx.drawImage(
+      canvas,
+      0, 0, Math.round(cssWidth * pixelRatio), Math.round(cssHeight * pixelRatio),
+      0, 0, target.width, target.height
+    );
+  }
+
+  stage = { renderer, environment, draw, pixelRatio };
+  return stage;
+}
+
+export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAnchor = 0, yaw = 0, rimColor = 0xffa93e, spinSpeed = 0.25, interactive = false, onReady }) {
+  const { environment, draw, pixelRatio } = getStage();
 
   const scene = new THREE.Scene();
-  // gloss needs something to reflect. Generated per viewer rather than shared:
-  // a PMREM texture belongs to the WebGL context that produced it, and each
-  // viewer owns its own renderer.
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  pmrem.dispose();
+  scene.environment = environment;
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
 
   // dialled back from the un-lit-environment values: the env map now carries
@@ -267,10 +333,21 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     };
   }
 
+  // the CSS size this viewer occupies on screen -- drives both the camera
+  // aspect (so framing is identical to the old per-canvas renderer) and the
+  // stage region we render into
+  let cssWidth = 0;
+  let cssHeight = 0;
+
   function resize() {
     const { clientWidth, clientHeight } = canvas;
     if (!clientWidth || !clientHeight) return;
-    renderer.setSize(clientWidth, clientHeight, false);
+    cssWidth = clientWidth;
+    cssHeight = clientHeight;
+    // the 2D canvas owns its own backing store now; match device pixels so the
+    // blit lands 1:1 and nothing is resampled
+    canvas.width = Math.round(clientWidth * pixelRatio);
+    canvas.height = Math.round(clientHeight * pixelRatio);
     camera.aspect = clientWidth / clientHeight;
     camera.updateProjectionMatrix();
     invalidate();
@@ -289,7 +366,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     }
     if (!needsRender) return;
     needsRender = false;
-    renderer.render(scene, camera);
+    draw(scene, camera, canvas, cssWidth, cssHeight);
   }
 
   function dispose() {
@@ -297,10 +374,15 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     clearTimeout(resumeTimer);
     dragCleanup?.();
     resizeObserver.disconnect();
-    renderer.dispose();
-    // dispose() alone doesn't free the actual WebGL context, so repeated
-    // create/destroy cycles hit the browser's context limit and go blank
-    renderer.forceContextLoss();
+    // Nothing GPU-side to tear down: the context, its uploaded textures and
+    // the environment map are the shared stage's and outlive this viewer --
+    // that persistence is the entire point. Geometry and materials belong to
+    // the cached source scene (clone(true) shares them), so disposing them
+    // here would corrupt every other viewer of the same character.
+    if (currentModel) {
+      rig.remove(currentModel);
+      currentModel = null;
+    }
   }
 
   resize();
