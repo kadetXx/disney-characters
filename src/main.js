@@ -183,7 +183,11 @@ function buildClips() {
   for (let i = 0; i < 3; i++) {
     const card = document.createElement("div");
     card.className = "clip-card";
+    // one shared placeholder file behind all three; muted+playsinline so it
+    // autoplays under browser policy, and preload=auto since it is reused
     card.innerHTML = `
+      <video class="clip-video" src="${import.meta.env.BASE_URL}clip-placeholder.mp4"
+             autoplay loop muted playsinline preload="auto" aria-hidden="true"></video>
       <div class="clip-play">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M10 8.5L16 12L10 15.5V8.5Z" fill="#243A74"/></svg>
       </div>

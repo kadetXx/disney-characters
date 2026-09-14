@@ -91,7 +91,7 @@ img {
 
 .logo-word {
   font-family: var(--font-display);
-  font-weight: 500;
+  font-weight: 400;
   font-size: 21px;
   color: var(--color-ink);
   white-space: nowrap;
@@ -586,9 +586,24 @@ img {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+
+.clip-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* sits behind the play button, and knocked back so the button stays legible
+     over whatever frame happens to be showing */
+  opacity: 0.65;
+  z-index: 0;
 }
 
 .clip-play {
+  position: relative;
+  z-index: 1;
   width: 44px;
   height: 44px;
   border-radius: 100%;
