@@ -34,9 +34,9 @@ export const characters = [
     verticalAnchor: 0.381,
     panelRatio: 0.95,
     shiftX: -9,
-    detailZoom: 1.25,
+    detailZoom: 1.313,
     detailShiftX: -3,
-    detailShiftY: -3,
+    detailShiftY: -5.0,
   },
   {
     id: "sadness",

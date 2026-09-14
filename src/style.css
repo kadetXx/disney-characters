@@ -17,6 +17,11 @@
      is the space the character stands in), so card height = width * 1.06/0.64.
      Sized against the viewport rather than fixed px so the composition keeps
      filling the page the way the reference does instead of leaving a void. */
+  /* how far in the expanded view's panel starts. The rail spans exactly this,
+     so its centred contents land in the middle of the white column rather than
+     bunched against the left edge. */
+  --detail-inset: clamp(76px, 14vw, 300px);
+
   --card-w: clamp(210px, 25vw, 560px);
   --card-h: min(calc(var(--card-w) * 1.656), 72vh);
   --card-gap: clamp(18px, 3.8vw, 85px);
@@ -386,12 +391,14 @@ img {
   top: 0;
   left: 0;
   bottom: 0;
-  width: clamp(56px, 6vw, 110px);
+  width: var(--detail-inset);
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* sits well below centre, and the items are spaced generously apart */
   justify-content: center;
-  gap: clamp(28px, 6vh, 72px);
+  padding-top: clamp(150px, 34vh, 400px);
+  gap: clamp(56px, 11vh, 130px);
   z-index: 3;
 }
 
@@ -400,7 +407,7 @@ img {
   transform: rotate(180deg);
   white-space: nowrap;
   font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 500;
   font-size: clamp(26px, 3.2vw, 46px);
   color: var(--color-ink);
   outline: none;
@@ -408,9 +415,11 @@ img {
 }
 
 .rail-tab:not(.is-active) {
-  font-weight: 500;
-  font-size: clamp(18px, 2vw, 28px);
-  color: var(--color-muted-2);
+  font-weight: 400;
+  font-size: clamp(15px, 1.65vw, 23px);
+  /* a touch lighter than --color-muted-2, so it recedes further behind the
+     active tab without losing legibility */
+  color: #ccccd4;
 }
 
 .rail-tab.is-active {
@@ -425,27 +434,29 @@ img {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(20px, 4vh, 48px);
+  gap: clamp(44px, 8vh, 96px);
 }
 
 .rail-chevron {
   display: flex;
+  color: var(--color-muted);
   outline: none;
-  transition: transform 150ms ease;
+  transition: transform 150ms ease, color 150ms ease;
 }
 
 .rail-chevron:hover {
-  transform: translateY(2px);
+  transform: translateY(3px);
+  color: var(--color-ink);
 }
 
 .detail-panel {
   position: absolute;
   /* reference: panel starts ~30% down the viewport and ~14% in from the left */
   top: clamp(90px, 22vh, 280px);
-  left: clamp(76px, 14vw, 300px);
+  left: var(--detail-inset);
   right: 0;
   bottom: 0;
-  border-radius: clamp(36px, 5vw, 76px) 0 0 0;
+  border-radius: clamp(64px, 11vw, 180px) 0 0 0;
   padding: clamp(26px, 4vw, 60px) clamp(26px, 5vw, 70px);
   display: flex;
   flex-direction: column;
@@ -464,7 +475,9 @@ img {
   top: calc(-11% + var(--detail-shift-y, 0%));
   width: 54%;
   height: 118%;
-  z-index: 2;
+  /* the character sits on top of everything -- rail, close button and nav --
+     so a tall pose reads as passing in front rather than being cut into */
+  z-index: 6;
   pointer-events: none;
 }
 
@@ -603,6 +616,10 @@ img {
 /* ---------------------------------------------------------------- */
 
 @media (max-width: 720px) {
+  :root {
+    --detail-inset: clamp(90px, 26vw, 160px);
+  }
+
   .search-input::placeholder {
     color: transparent;
   }
@@ -624,12 +641,13 @@ img {
   }
 
   .detail-rail {
-    left: 4px;
-    width: 60px;
+    left: 0;
+    width: var(--detail-inset);
   }
 
   .detail-panel {
-    left: clamp(90px, 26vw, 160px);
+    /* narrower inset on small screens; the rail follows via --detail-inset */
+    left: var(--detail-inset);
     border-radius: clamp(28px, 8vw, 40px) 0 0 0;
   }
 

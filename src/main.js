@@ -224,7 +224,7 @@ function buildDetailView(characterId) {
     <div class="rail-next-group">
       <button class="rail-tab" type="button">${nextCharacter.name}</button>
       <button class="rail-chevron" type="button" aria-label="Next character">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 9L12 15L18 9" stroke="#C7C7CE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
   `;
