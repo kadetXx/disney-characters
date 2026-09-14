@@ -1,4 +1,3 @@
-import gsap from "gsap";
 import { characters, getCharacter, defaultCharacterId } from "./data/characters.js";
 import { createViewer, createRenderLoop } from "./three/viewer.js";
 
@@ -9,11 +8,6 @@ if (fontsLink) fontsLink.rel = "stylesheet";
 
 const renderLoop = createRenderLoop();
 const app = document.getElementById("app");
-
-// dev-only: lets a test pause and scrub gsap's global timeline, so the flight
-// can be inspected at exact progress values instead of hoping a screenshot
-// lands mid-tween on a machine rendering at a few frames a second
-if (import.meta.env.DEV) window.__gsap = gsap;
 
 const CARD_DISTANCE_SCALE = 2.05;
 const MASCOT_DISTANCE_SCALE = 1.02;
@@ -33,32 +27,6 @@ function gradientCss(character) {
 function clearViewers() {
   for (const viewer of state.viewers) renderLoop.remove(viewer);
   state.viewers = [];
-}
-
-// The two framings a character is seen in. Single source of truth: the flight
-// interpolates between exactly the values the two static views are built with,
-// so the motion can't drift from where it starts and lands.
-function cardFraming(character) {
-  return {
-    distanceScale: CARD_DISTANCE_SCALE * (character.zoomAdjust ?? 1),
-    verticalAnchor: character.verticalAnchor ?? 0,
-  };
-}
-
-function detailFraming(character) {
-  return {
-    distanceScale: MASCOT_DISTANCE_SCALE * (character.detailZoom ?? 1),
-    verticalAnchor: character.detailAnchor ?? 0,
-  };
-}
-
-const lerp = (a, b, t) => a + (b - a) * t;
-
-function placeAt(el, rect) {
-  el.style.left = `${rect.left}px`;
-  el.style.top = `${rect.top}px`;
-  el.style.width = `${rect.width}px`;
-  el.style.height = `${rect.height}px`;
 }
 
 function fadeIn(el, delay = 0) {
@@ -99,11 +67,12 @@ function buildCharacterCard(character) {
   `;
   card.appendChild(panel);
 
-  card.addEventListener("click", () => showDetail(character.id, canvas));
+  card.addEventListener("click", () => showDetail(character.id));
 
   const viewer = createViewer(canvas, {
     modelUrl: character.model,
-    ...cardFraming(character),
+    distanceScale: CARD_DISTANCE_SCALE * (character.zoomAdjust ?? 1),
+    verticalAnchor: character.verticalAnchor ?? 0,
     yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
     rimColor: character.rimColor ?? character.gradient[0],
     spinSpeed: 0,
@@ -426,7 +395,8 @@ function buildDetailView(characterId) {
 
   mainViewer = createViewer(canvas, {
     modelUrl: character.model,
-    ...detailFraming(character),
+    distanceScale: MASCOT_DISTANCE_SCALE * (character.detailZoom ?? 1),
+    verticalAnchor: character.detailAnchor ?? 0,
     yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
     rimColor: character.rimColor ?? character.gradient[0],
     spinSpeed: 0,
@@ -455,106 +425,9 @@ function showGrid() {
   mount(buildGridView);
 }
 
-const FLIGHT_SECONDS = 0.66;
-
-// Carries the character from its card into the detail layout as one continuous
-// move, rather than cross-fading between two separately drawn copies.
-//
-// The card's own viewer is *adopted*: its canvas is lifted out of the card,
-// pinned to the viewport, and flown to the detail canvas's rect. Nothing is
-// reloaded or re-uploaded -- it is literally the same scene, camera and GPU
-// textures throughout, which is only possible now that one context is shared.
-//
-// Both endpoints are measured from the live layout rather than stored, so the
-// start point already accounts for wherever the carousel happens to be parked
-// and for the edge-scale transform on the card.
-function flyToDetail(character, cardCanvas) {
-  const viewer = state.viewers.find((v) => v.canvas === cardCanvas);
-  if (!viewer) return false;
-
-  const from = cardCanvas.getBoundingClientRect();
-  if (!from.width || !from.height) return false;
-
-  // hand the viewer over to the flight before clearViewers() can dispose it
-  state.viewers = state.viewers.filter((v) => v !== viewer);
-
-  // the aura is inherited from the card wrapper, which is about to be
-  // destroyed -- pin the computed values onto the canvas so it survives
-  const style = getComputedStyle(cardCanvas);
-  const aura = style.getPropertyValue("--aura");
-  const auraSize = style.getPropertyValue("--aura-size");
-
-  cardCanvas.classList.add("flight-canvas");
-  cardCanvas.style.setProperty("--aura", aura);
-  cardCanvas.style.setProperty("--aura-size", auraSize);
-  placeAt(cardCanvas, from);
-  document.body.appendChild(cardCanvas);
-
-  // build the destination at its final size. Deliberately NOT the usual
-  // fadeIn(): that enters from scale(0.96), so every rect measured under it
-  // would be 4% short and the flight would land in the wrong place.
-  clearViewers();
-  app.innerHTML = "";
-  const view = buildDetailView(character.id);
-  app.appendChild(view);
-
-  const target = view.querySelector(".detail-mascot-canvas");
-  const to = target.getBoundingClientRect();
-  // the real one stays hidden until the flight sets down on top of it
-  target.style.visibility = "hidden";
-
-  // opacity only, no transform -- the panel must not move the layout while
-  // the character is flying toward a rect measured against it
-  gsap.fromTo(view, { opacity: 0 }, { opacity: 1, duration: 0.34, ease: "power2.out" });
-
-  const fromFraming = cardFraming(character);
-  const toFraming = detailFraming(character);
-  const progress = { t: 0 };
-
-  gsap.to(progress, {
-    t: 1,
-    duration: FLIGHT_SECONDS,
-    ease: "power3.inOut",
-    onUpdate() {
-      const t = progress.t;
-      const rect = {
-        left: lerp(from.left, to.left, t),
-        top: lerp(from.top, to.top, t),
-        width: lerp(from.width, to.width, t),
-        height: lerp(from.height, to.height, t),
-      };
-      placeAt(cardCanvas, rect);
-      // size and framing are pushed in explicitly rather than read back from
-      // the element, so the flight never forces a layout read per frame
-      viewer.setSize(rect.width, rect.height);
-      viewer.setFraming(
-        lerp(fromFraming.distanceScale, toFraming.distanceScale, t),
-        lerp(fromFraming.verticalAnchor, toFraming.verticalAnchor, t)
-      );
-      // the detail view carries no aura, so retire it over the flight instead
-      // of letting it pop off on landing
-      cardCanvas.style.setProperty("--aura-size", `${lerp(parseFloat(auraSize) || 0, 0, t)}px`);
-      // draw immediately: setSize just wiped the canvas, and waiting for the
-      // render loop's own rAF would leave it blank for this frame
-      viewer.render();
-    },
-    onComplete() {
-      target.style.visibility = "";
-      cardCanvas.remove();
-      renderLoop.remove(viewer);
-    },
-  });
-
-  return true;
-}
-
-function showDetail(characterId, cardCanvas) {
-  const character = getCharacter(characterId);
+function showDetail(characterId) {
   state.view = "detail";
   state.detailId = characterId;
-  // falls back to the plain mount when there's nothing to fly from (the rail's
-  // next-character link), so the flight is an enhancement, never a dependency
-  if (cardCanvas && flyToDetail(character, cardCanvas)) return;
   mount(() => buildDetailView(characterId));
 }
 
