@@ -118,14 +118,84 @@ function buildGridView() {
   const prevBtn = footer.querySelector("#prevBtn");
   const nextBtn = footer.querySelector("#nextBtn");
 
-  function step(direction) {
-    const card = track.querySelector(".char-card");
-    const cardWidth = card.getBoundingClientRect().width;
-    const gap = parseFloat(getComputedStyle(track).columnGap) || 0;
-    // ~2.7 cards per press: with 6 cards and roughly 3.3 visible, that's the
-    // whole scroll range, so one press lands at the far end rather than nudging
-    track.scrollBy({ left: direction * (cardWidth + gap) * 2.7, behavior: "smooth" });
+  // The carousel moves in whole pages, never free-scrolls: you are either on
+  // the first screenful or the second, and any swipe commits to the far end
+  // rather than tracking the pointer. The track's overflow-x is hidden (see
+  // style.css) so the browser never scrolls it natively -- every movement
+  // below is a deliberate scrollTo, which is what makes it feel snappy
+  // instead of drifting to rest wherever momentum ran out.
+  const SLIDE_MS = 420;
+  // how much wheel travel / finger distance counts as a committed swipe
+  const WHEEL_THRESHOLD = 24;
+  const SWIPE_THRESHOLD = 40;
+  let slideUntil = 0;
+
+  // One page per screenful of overflow, minimum two whenever there is
+  // anything at all to scroll -- so the far end is always reachable in one
+  // press even when the overflow is less than a full viewport wide.
+  function pageOffsets() {
+    const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+    if (maxScroll < 1) return [0];
+    const count = Math.max(2, Math.round(maxScroll / track.clientWidth) + 1);
+    return Array.from({ length: count }, (_, i) => (i * maxScroll) / (count - 1));
   }
+
+  function currentPage() {
+    const offsets = pageOffsets();
+    let best = 0;
+    offsets.forEach((offset, i) => {
+      if (Math.abs(offset - track.scrollLeft) < Math.abs(offsets[best] - track.scrollLeft)) best = i;
+    });
+    return best;
+  }
+
+  function goToPage(index) {
+    const offsets = pageOffsets();
+    const target = Math.min(offsets.length - 1, Math.max(0, index));
+    slideUntil = performance.now() + SLIDE_MS;
+    track.scrollTo({ left: offsets[target], behavior: "smooth" });
+  }
+
+  // A swipe is one discrete command. Ignoring input mid-slide stops a single
+  // trackpad flick -- which fires dozens of wheel events -- from queuing up
+  // several pages and skating past the one the user asked for.
+  function step(direction) {
+    if (performance.now() < slideUntil) return;
+    goToPage(currentPage() + direction);
+  }
+
+  track.addEventListener(
+    "wheel",
+    (event) => {
+      // trackpads report horizontal intent on deltaX; a mouse wheel only has
+      // deltaY, so take whichever axis the gesture actually favours
+      const delta =
+        Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (Math.abs(delta) < WHEEL_THRESHOLD) return;
+      event.preventDefault();
+      step(Math.sign(delta));
+    },
+    { passive: false }
+  );
+
+  let touchStartX = null;
+  track.addEventListener(
+    "touchstart",
+    (event) => {
+      touchStartX = event.touches[0].clientX;
+    },
+    { passive: true }
+  );
+  track.addEventListener(
+    "touchend",
+    (event) => {
+      if (touchStartX === null) return;
+      const dx = event.changedTouches[0].clientX - touchStartX;
+      touchStartX = null;
+      if (Math.abs(dx) >= SWIPE_THRESHOLD) step(dx < 0 ? 1 : -1);
+    },
+    { passive: true }
+  );
 
   // Items shrink as they approach and cross the scrollport edge, and return to
   // full size coming back in. The falloff spans two cards at each edge: the
@@ -183,9 +253,9 @@ function buildGridView() {
   }
 
   function syncPagerState() {
-    const maxScroll = track.scrollWidth - track.clientWidth - 2;
-    prevBtn.disabled = track.scrollLeft <= 0;
-    nextBtn.disabled = track.scrollLeft >= maxScroll;
+    const page = currentPage();
+    prevBtn.disabled = page === 0;
+    nextBtn.disabled = page === pageOffsets().length - 1;
   }
 
   prevBtn.addEventListener("click", () => step(-1));

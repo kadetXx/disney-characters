@@ -184,10 +184,14 @@ img {
      scrollport enough top padding to hold the overscan puts that protrusion
      *inside* the padding box (never clipped), and the matching negative margin
      cancels it out so the row still sits exactly where it did before. */
-  overflow-x: auto;
+  /* hidden, not auto: the carousel is paged from JS (see step/goToPage in
+     main.js) and never free-scrolls, so the browser must not scroll this
+     box natively. scrollLeft is still settable, so scrollTo drives it. */
+  overflow-x: hidden;
   padding-top: var(--card-overscan);
   margin-top: calc(var(--card-overscan) * -1);
-  scroll-snap-type: x proximity;
+  /* CSS snapping would fight the JS paging for the final resting position */
+  scroll-snap-type: none;
   scroll-behavior: smooth;
   padding-left: var(--nav-pad-x);
   padding-right: var(--nav-pad-x);
