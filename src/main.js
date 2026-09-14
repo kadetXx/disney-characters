@@ -127,6 +127,25 @@ function buildGridView() {
     track.scrollBy({ left: direction * (cardWidth + gap) * 2.7, behavior: "smooth" });
   }
 
+  // Items shrink as they slide out of the scrollport and return to full size
+  // coming back in. Driven off how much of each card is clipped by the port
+  // edge, so it tracks the scroll position continuously rather than snapping.
+  const EDGE_SCALE_MIN = 0.86;
+  let edgeFrame = null;
+  function syncEdgeScale() {
+    edgeFrame = null;
+    const port = track.getBoundingClientRect();
+    for (const card of track.children) {
+      const r = card.getBoundingClientRect();
+      const clipped = Math.max(0, port.left - r.left, r.right - port.right);
+      const t = Math.min(1, clipped / r.width);
+      card.style.transform = `scale(${(1 - t * (1 - EDGE_SCALE_MIN)).toFixed(4)})`;
+    }
+  }
+  function queueEdgeScale() {
+    if (edgeFrame === null) edgeFrame = requestAnimationFrame(syncEdgeScale);
+  }
+
   function syncPagerState() {
     const maxScroll = track.scrollWidth - track.clientWidth - 2;
     prevBtn.disabled = track.scrollLeft <= 0;
@@ -135,8 +154,9 @@ function buildGridView() {
 
   prevBtn.addEventListener("click", () => step(-1));
   nextBtn.addEventListener("click", () => step(1));
-  track.addEventListener("scroll", syncPagerState, { passive: true });
-  requestAnimationFrame(syncPagerState);
+  track.addEventListener("scroll", () => { syncPagerState(); queueEdgeScale(); }, { passive: true });
+  window.addEventListener("resize", queueEdgeScale, { passive: true });
+  requestAnimationFrame(() => { syncPagerState(); syncEdgeScale(); });
 
   return view;
 }

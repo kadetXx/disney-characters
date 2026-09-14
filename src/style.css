@@ -211,6 +211,11 @@ img {
   scroll-snap-align: start;
   outline: none;
   text-align: left;
+  /* horizontally centred so a shrinking card never drifts sideways, but pinned
+     to the baseline so the cards' aligned bottoms survive the scale. Switch to
+     50% 50% for a true centre origin -- the bottoms then rise as items exit. */
+  transform-origin: 50% 100%;
+  will-change: transform;
 }
 
 .char-card-canvas-wrap {
