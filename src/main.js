@@ -1,3 +1,4 @@
+import gsap from "gsap";
 import { characters, getCharacter, defaultCharacterId } from "./data/characters.js";
 import { createViewer, createRenderLoop } from "./three/viewer.js";
 
@@ -8,6 +9,11 @@ if (fontsLink) fontsLink.rel = "stylesheet";
 
 const renderLoop = createRenderLoop();
 const app = document.getElementById("app");
+
+// dev-only: lets a test pause and scrub gsap's global timeline, so the flight
+// can be inspected at exact progress values instead of hoping a screenshot
+// lands mid-tween on a machine rendering at a few frames a second
+if (import.meta.env.DEV) window.__gsap = gsap;
 
 const CARD_DISTANCE_SCALE = 2.05;
 const MASCOT_DISTANCE_SCALE = 1.02;
@@ -27,6 +33,68 @@ function gradientCss(character) {
 function clearViewers() {
   for (const viewer of state.viewers) renderLoop.remove(viewer);
   state.viewers = [];
+}
+
+// The two framings a character is seen in. Single source of truth: the flight
+// interpolates between exactly the values the two static views are built with,
+// so the motion cannot drift from where it starts and lands.
+function cardFraming(character) {
+  return {
+    distanceScale: CARD_DISTANCE_SCALE * (character.zoomAdjust ?? 1),
+    verticalAnchor: character.verticalAnchor ?? 0,
+  };
+}
+
+function detailFraming(character) {
+  return {
+    distanceScale: MASCOT_DISTANCE_SCALE * (character.detailZoom ?? 1),
+    verticalAnchor: character.detailAnchor ?? 0,
+  };
+}
+
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// Top-left grows INTO something -- the detail panel's big sweep -- so it is
+// carried through the whole move.
+const GROWING_CORNERS = ["borderTopLeftRadius"];
+// Bottom-left simply rides top-left the whole way, rounding the left edge with
+// it and never straightening. It gets away with that because the panel's
+// bottom edge overshoots the viewport -- see PANEL_BOTTOM_OVERSHOOT.
+const JOINING_CORNER = "borderBottomLeftRadius";
+// The right pair simply resolve to a square 0. Straightening early reads as
+// the panel losing its shape before it has landed, so they hold the card's own
+// radius until the box is essentially in position.
+const LATE_CORNERS = ["borderTopRightRadius", "borderBottomRightRadius"];
+const CORNERS = [...GROWING_CORNERS, JOINING_CORNER, ...LATE_CORNERS];
+
+// where along the flight the corners that end square start squaring off
+const CORNER_SPLIT = 0.66;
+
+// computed corner radii in px, so the card's own rounding can morph into the
+// detail panel's single huge top-left corner
+function readCorners(el) {
+  const style = getComputedStyle(el);
+  return Object.fromEntries(CORNERS.map((corner) => [corner, style[corner]]));
+}
+
+const lerpRect = (a, b, t) => ({
+  left: lerp(a.left, b.left, t),
+  top: lerp(a.top, b.top, t),
+  width: lerp(a.width, b.width, t),
+  height: lerp(a.height, b.height, t),
+});
+
+// smallest box containing both, so the character never leaves the canvas at
+// any point along the flight and the canvas itself need never be resized
+function unionRect(a, b) {
+  const left = Math.min(a.left, b.left);
+  const top = Math.min(a.top, b.top);
+  return {
+    left,
+    top,
+    width: Math.max(a.left + a.width, b.left + b.width) - left,
+    height: Math.max(a.top + a.height, b.top + b.height) - top,
+  };
 }
 
 function fadeIn(el, delay = 0) {
@@ -67,12 +135,11 @@ function buildCharacterCard(character) {
   `;
   card.appendChild(panel);
 
-  card.addEventListener("click", () => showDetail(character.id));
+  card.addEventListener("click", () => showDetail(character.id, canvas));
 
   const viewer = createViewer(canvas, {
     modelUrl: character.model,
-    distanceScale: CARD_DISTANCE_SCALE * (character.zoomAdjust ?? 1),
-    verticalAnchor: character.verticalAnchor ?? 0,
+    ...cardFraming(character),
     yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
     rimColor: character.rimColor ?? character.gradient[0],
     spinSpeed: 0,
@@ -325,8 +392,18 @@ function buildClips() {
 }
 
 let mainViewer = null;
+// set when a detail view is built mid-flight; run once the character lands
+let pendingMascot = null;
 
-function buildDetailView(characterId) {
+// onPainted runs only once the mascot canvas actually has the character drawn
+// into it -- see the mount closure in buildDetailView
+function mountMascotViewer(onPainted) {
+  const mount = pendingMascot;
+  pendingMascot = null;
+  mount?.(onPainted);
+}
+
+function buildDetailView(characterId, { deferMascot = false } = {}) {
   const character = getCharacter(characterId);
   const nextCharacter = characters[(characters.findIndex((c) => c.id === characterId) + 1) % characters.length];
 
@@ -389,21 +466,46 @@ function buildDetailView(characterId) {
   canvas.setAttribute("aria-hidden", "true");
   canvas.style.setProperty("--detail-shift-x", `${character.detailShiftX ?? 0}%`);
   canvas.style.setProperty("--detail-shift-y", `${character.detailShiftY ?? 0}%`);
+  // same accent halo the cards carry, so the character doesn't arrive here
+  // permanently stripped of it. Affordable on this canvas and not on the
+  // flight's precisely because this one is static -- the blur rasterises once
+  // and is cached, rather than being redone every frame.
+  canvas.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
+  canvas.style.setProperty("--aura-size", AURA.blur);
   body.appendChild(canvas);
 
   view.appendChild(body);
 
-  mainViewer = createViewer(canvas, {
-    modelUrl: character.model,
-    distanceScale: MASCOT_DISTANCE_SCALE * (character.detailZoom ?? 1),
-    verticalAnchor: character.detailAnchor ?? 0,
-    yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
-    rimColor: character.rimColor ?? character.gradient[0],
-    spinSpeed: 0,
-    interactive: true,
-  });
-  renderLoop.add(mainViewer);
-  state.viewers.push(mainViewer);
+  // Deferred during a flight: a second full-size viewer rendering the same
+  // character while the flight is mid-air doubles the per-frame cost at
+  // exactly the wrong moment. mountMascotViewer() is called on landing.
+  const mount = (onPainted) => {
+    // held locally rather than read back off mainViewer: onReady fires a
+    // microtask later, by which point a fast second navigation may already
+    // have pointed mainViewer at a different character's viewer
+    const viewer = createViewer(canvas, {
+      modelUrl: character.model,
+      ...detailFraming(character),
+      yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
+      rimColor: character.rimColor ?? character.gradient[0],
+      spinSpeed: 0,
+      interactive: true,
+      // onReady fires once the model is loaded and framed -- but nothing has
+      // been DRAWN yet: the render loop is a separate rAF callback and would
+      // not reach this viewer until the next frame. Draw synchronously here so
+      // the canvas is never handed to the flight (or to the user) blank.
+      onReady: () => {
+        viewer.render();
+        onPainted?.();
+      },
+    });
+    mainViewer = viewer;
+    renderLoop.add(viewer);
+    state.viewers.push(viewer);
+  };
+
+  if (deferMascot) pendingMascot = mount;
+  else mount();
 
   return view;
 }
@@ -412,7 +514,18 @@ function buildDetailView(characterId) {
 /* View switching                                                     */
 /* ------------------------------------------------------------------ */
 
+// Cards still playing their exit animation. They live on <body> rather than in
+// #app, so nothing that rebuilds #app can clear them -- this list is how they
+// get collected if the user navigates again mid-exit.
+let outgoingCards = [];
+
+function dropOutgoingCards() {
+  for (const card of outgoingCards) card.remove();
+  outgoingCards = [];
+}
+
 function mount(buildFn) {
+  dropOutgoingCards();
   clearViewers();
   app.innerHTML = "";
   const view = buildFn();
@@ -425,9 +538,516 @@ function showGrid() {
   mount(buildGridView);
 }
 
-function showDetail(characterId) {
+const FLIGHT_SECONDS = 0.62;
+// render fewer pixels while the character is IN MOTION and let the browser
+// scale the bitmap up; at speed the softness is invisible and it keeps the
+// per-frame cost well clear of the frame budget.
+//
+// Applied only through the middle of the flight. Holding it across the whole
+// move meant the first painted frame was 25% softer than the card the user had
+// just been looking at, and the last one 25% softer than the mascot that
+// replaced it -- a sharpness pop at each end of an otherwise continuous move,
+// with nothing moving to hide it.
+const FLIGHT_RENDER_SCALE = 0.75;
+// How much of each end of the flight renders at full resolution. power3.inOut
+// is at its slowest here, so these are both the frames where softness reads
+// most plainly and the frames that sit against a static card or mascot. It
+// cannot be the endpoints alone: the t=1 frame is never painted -- the landing
+// swap replaces it within the same frame -- so the match has to be in place
+// several frames before the end.
+const FLIGHT_SHARP_EDGE = 0.12;
+// if the mascot's model somehow never resolves, don't strand the flight canvas
+// on top of the page forever
+const LANDING_TIMEOUT = 2000;
+
+// The cards that were NOT clicked don't disappear with the grid -- they drop
+// away and fade while the chosen one flies. Well short of the flight so the
+// grid has cleared long before the detail panel finishes growing over it.
+const CARD_EXIT_SECONDS = 0.3;
+// how far a card falls, in px. Scaled up slightly with distance from the
+// clicked card so the row spreads apart as it goes rather than moving as a
+// single slab.
+const CARD_EXIT_DROP = 84;
+// degrees. Cards to the left of the clicked one tilt one way and cards to the
+// right the other, so the row parts around the character being chosen.
+const CARD_EXIT_TILT = 4.5;
+// each card further out starts this much later, rippling outward from the pick
+const CARD_EXIT_STAGGER = 0.04;
+
+// The clicked card's own title and movie line are carried across the flight as
+// a ghost, because nothing else covers that gap: the real card dies with the
+// grid, and the detail panel's contents cannot appear until late (they are
+// laid out against a padding-left of up to 620px, so at card width the badge
+// spills out and the description clips). Without this the text blinks out on
+// the very first frame of the flight and fades back in two thirds of the way
+// through -- read as a flash right at the click.
+//
+// Fades out across this window, which overlaps the detail contents fading in,
+// so the two crossfade rather than leaving a gap with no text at all.
+const CARD_TEXT_FADE_FROM = 0.5;
+const CARD_TEXT_FADE_TO = 0.95;
+// the grid footer is chrome rather than a card, so it just fades rather than
+// dropping and tilting -- but it has to go somewhere, not vanish with the grid
+const FOOTER_FADE_SECONDS = 0.22;
+// back.in loads up against the drop before releasing it -- the card lifts and
+// counter-rotates a few pixels first, which is what reads as spring rather
+// than as a card simply being translated downward.
+const CARD_EXIT_EASE = "back.in(2.2)";
+
+// How much the panel's bottom edge runs ahead of its top edge while the box
+// grows. 0 drives both off one ease, which is what made the expansion read as
+// going up-and-away from the card: the end state only puts a little more
+// travel below the card than above it (167px down vs 145px up at 1440x900),
+// and the box is racing ~685px leftward at the same time, so an even vertical
+// split gets read as upward. Running the bottom down early makes the panel
+// descend as it opens. Both edges still start and finish together.
+const PANEL_DOWNWARD_BIAS = 0.45;
+
+// How far past the bottom of the viewport the panel's bottom edge travels,
+// over and above its final radius. The panel keeps growing downward until its
+// rounded bottom-left corner is entirely below the fold -- like dragging a
+// sheet of paper down behind the screen edge -- so the corner never has to
+// straighten on screen. Once it is off the fold the stylesheet's own square
+// bottom is indistinguishable from it, and the landing hand-off is invisible.
+const PANEL_BOTTOM_OVERSHOOT = 8;
+
+// Carries the character from its card into the detail layout as one continuous
+// move rather than cross-fading between two separately drawn copies.
+//
+// The card's own viewer is adopted: its canvas is lifted out of the card and
+// pinned to the viewport, so the same scene, camera and GPU textures are on
+// screen the whole way. Nothing is reloaded -- only possible now that every
+// viewer shares one context.
+//
+// The canvas is sized ONCE, to the union of the start and end rects, and never
+// touched again. Assigning canvas.width/height reallocates the entire backing
+// store (megabytes per frame at retina detail size) and wipes it; doing that
+// per frame is what made the first attempt flash and teleport. Here the
+// character is moved and grown purely by camera framing.
+function flyToDetail(character, cardCanvas) {
+  const viewer = state.viewers.find((v) => v.canvas === cardCanvas);
+  if (!viewer) return false;
+
+  const from = cardCanvas.getBoundingClientRect();
+  if (!from.width || !from.height) return false;
+
+  dropOutgoingCards();
+
+  // everything below needs the clicked card's own DOM, so resolve it before
+  // the canvas is lifted out of it
+  const clickedCard = cardCanvas.closest(".char-card");
+
+  // the card's coloured panel, measured before the grid is torn down -- the
+  // detail panel will start life at exactly this box so it reads as this card
+  // growing rather than a new panel appearing
+  const cardPanel = clickedCard?.querySelector(".char-card-panel");
+  const panelFrom = cardPanel?.getBoundingClientRect();
+  const panelFromCorners = cardPanel ? readCorners(cardPanel) : null;
+
+  // The cards that are staying behind, measured while the grid is still laid
+  // out. Only the ones actually on screen: the carousel can be scrolled, and
+  // there is no point animating cards parked off the side of the viewport.
+  const leaving = [...app.querySelectorAll(".char-card")]
+    .filter((card) => card !== clickedCard)
+    .map((card) => ({ card, rect: card.getBoundingClientRect() }))
+    .filter(({ rect }) => rect.right > 0 && rect.left < window.innerWidth);
+
+  const clickedLeft = clickedCard?.getBoundingClientRect().left ?? 0;
+
+  // measured before the teardown, pinned after it
+  const gridFooter = app.querySelector(".grid-footer");
+  const footerFrom = gridFooter?.getBoundingClientRect();
+
+  // hand the viewer to the flight before clearViewers() can dispose it
+  state.viewers = state.viewers.filter((v) => v !== viewer);
+
+  // Dispose the other cards' viewers FIRST, before the grid is repositioned
+  // below. dispose() only stops them rendering and disconnects their
+  // ResizeObservers -- it leaves each 2D canvas holding its last painted
+  // frame, which is exactly what the exit animation needs. Order matters:
+  // setSize() does not check `disposed`, so an observer still live when the
+  // grid moves would assign canvas.width and wipe the very pixels being
+  // faded out.
+  clearViewers();
+
+  // The cards fly out rather than vanishing. Each is pinned to the viewport at
+  // the exact box it already occupies and lifted onto <body>, which buys three
+  // things at once: the teardown below cannot delete them, position:fixed
+  // escapes .carousel-track's overflow (hidden on one axis clips BOTH, so a
+  // card sliding down inside the track would be sheared off at its edge), and
+  // nothing has to re-resolve the grid's flex layout -- pinning the whole
+  // .grid-view instead made its justify-content:flex-end column rebuild on
+  // re-parent and threw every card to the bottom of the viewport for a frame.
+  //
+  // z-index 2 puts them above the detail view's background but below the rail,
+  // close row and growing panel, so the panel sweeps over them as it expands.
+  // Written straight to the element rather than through gsap.set: this is
+  // layout-critical setup, not animation, and it has to be in effect in this
+  // same task -- the card is about to be re-parented onto <body>, where
+  // without it a .char-card is just an inline-block button in normal flow.
+  // gsap.set() only renders through the global timeline, so anything that
+  // pauses that timeline (the scrub harness does) leaves the pin unapplied.
+  for (const { card, rect } of leaving) {
+    Object.assign(card.style, {
+      position: "fixed",
+      margin: "0",
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      zIndex: "2",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(card);
+    outgoingCards.push(card);
+  }
+
+  // A copy of the clicked card's panel, stripped to just its text. Cloning the
+  // whole panel rather than lifting the title and movie line individually is
+  // what makes the text land exactly where it already was -- it inherits the
+  // panel's own padding, font sizes and flex-end alignment for free, so there
+  // is no second set of numbers to keep in step with the stylesheet. The
+  // background and shadow come off because the real detail panel is already
+  // drawing those, directly underneath.
+  let cardTextGhost = null;
+  if (cardPanel && panelFrom) {
+    cardTextGhost = cardPanel.cloneNode(true);
+    Object.assign(cardTextGhost.style, {
+      position: "fixed",
+      margin: "0",
+      left: `${panelFrom.left}px`,
+      top: `${panelFrom.top}px`,
+      width: `${panelFrom.width}px`,
+      height: `${panelFrom.height}px`,
+      background: "none",
+      boxShadow: "none",
+      // above the growing panel (5), below the character in flight (60)
+      zIndex: "6",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(cardTextGhost);
+    outgoingCards.push(cardTextGhost);
+  }
+
+  if (gridFooter && footerFrom) {
+    Object.assign(gridFooter.style, {
+      position: "fixed",
+      margin: "0",
+      left: `${footerFrom.left}px`,
+      top: `${footerFrom.top}px`,
+      width: `${footerFrom.width}px`,
+      height: `${footerFrom.height}px`,
+      zIndex: "2",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(gridFooter);
+    outgoingCards.push(gridFooter);
+  }
+
+  // the clicked card goes with the grid: its character is already the flight
+  // canvas, and its panel is handed to the detail panel, which starts at
+  // exactly that box with the same gradient
+  app.innerHTML = "";
+  // Build the destination at its final size, and WITHOUT the usual fadeIn():
+  // that enters from scale(0.96), so any rect measured under it is 4% short
+  // and the flight lands in the wrong place. The mascot's own viewer is
+  // deferred until landing so it isn't rendering full-size alongside us.
+  const view = buildDetailView(character.id, { deferMascot: true });
+  app.appendChild(view);
+
+  const target = view.querySelector(".detail-mascot-canvas");
+  const to = target.getBoundingClientRect();
+  target.style.visibility = "hidden";
+
+  // Grow the REAL detail panel from the card's box rather than cross-fading a
+  // copy: both already carry the same character gradient, so starting it at
+  // the card's rect and corners makes it the same object visually. Animating
+  // the box itself (not a transform: scale) is what keeps the corner radii
+  // circular and the gradient unstretched while it grows.
+  const panel = view.querySelector(".detail-panel");
+  if (panel && panelFrom) {
+    const panelTo = panel.getBoundingClientRect();
+    const panelToCorners = readCorners(panel);
+    // Contents stay hidden while the box resizes. visibility, not just opacity:
+    // they are laid out against the panel's *current* (smaller) width, so at
+    // any opacity above zero the badge spills past the panel's right edge and
+    // the description is clipped mid-sentence. They appear only once the box
+    // is close enough to final size for the layout to be the real one.
+    const contents = [...panel.children];
+    gsap.set(contents, { opacity: 0, visibility: "hidden" });
+    // While growing, the panel sweeps across the rail's column (which it never
+    // touches once settled, sitting at --detail-inset). The rail is z-index 3,
+    // so without this its vertical name labels show straight through the
+    // growing box. Cleared on landing so normal stacking resumes.
+    // Written straight to the element, like the card pins above: the box this
+    // establishes is what every frame below is measured against, so it has to
+    // hold in this same task rather than waiting on the global timeline.
+    Object.assign(panel.style, {
+      position: "fixed",
+      zIndex: "5",
+      left: `${panelFrom.left}px`,
+      top: `${panelFrom.top}px`,
+      width: `${panelFrom.width}px`,
+      height: `${panelFrom.height}px`,
+      ...panelFromCorners,
+    });
+    // The corners are split by what they are actually doing.
+    //
+    // Top-left is the detail panel's signature sweep and the one the eye
+    // follows, on screen the whole way. Growing it in step with the box, on
+    // the box's own ease, makes the radius read as part of the same expansion
+    // rather than something that happens to the panel after it arrives.
+    const pick = (corners) =>
+      Object.fromEntries(corners.map((corner) => [corner, panelToCorners[corner]]));
+
+    gsap.to(panel, {
+      ...pick(GROWING_CORNERS),
+      duration: FLIGHT_SECONDS,
+      ease: "power3.inOut",
+    });
+
+    // The right pair are headed for a square 0, and a corner going square while
+    // the box is still moving reads as the panel straightening out before it
+    // has landed. They hold the card's own radius and only square off once the
+    // box is essentially in position.
+    gsap.to(panel, {
+      ...pick(LATE_CORNERS),
+      duration: FLIGHT_SECONDS * (1 - CORNER_SPLIT),
+      ease: "power2.inOut",
+      delay: FLIGHT_SECONDS * CORNER_SPLIT,
+    });
+
+    // Bottom-left starts on the card's radius exactly as top-left does, so it
+    // can simply BE top-left for the whole move: the two rise together and the
+    // entire left edge rounds as the panel opens, with no second phase and no
+    // switch of behaviour to hide.
+    const fromTopLeft = parseFloat(panelFromCorners.borderTopLeftRadius) || 0;
+    const toTopLeft = parseFloat(panelToCorners.borderTopLeftRadius) || 0;
+    const joiningCorner = (base) => lerp(fromTopLeft, toTopLeft, base);
+
+    // ...which only works because the bottom edge outruns the viewport. The
+    // corner's curve occupies the last `radius` pixels of the left edge, so
+    // once the bottom sits a full radius below the fold the curve is entirely
+    // out of sight and the edge reads as straight all the way down. The
+    // stylesheet's resting box -- square, ending exactly at the fold -- looks
+    // identical, which is what makes the hand-off on landing invisible.
+    const bottomTo = panelTo.bottom + toTopLeft + PANEL_BOTTOM_OVERSHOOT;
+
+    // Growing past the fold would otherwise drag the panel's contents down
+    // with it, since they are laid out with space-between against whatever
+    // height the box currently has. Adding the overshoot to the bottom padding
+    // cancels it out of the content box exactly (box-sizing is border-box
+    // throughout), so the text, badge and clips sit where they always did.
+    const basePadBottom = parseFloat(getComputedStyle(panel).paddingBottom) || 0;
+
+    // The box is driven edge by edge rather than as one rect, so the bottom
+    // can run ahead of the top (see PANEL_DOWNWARD_BIAS). Both warps are of
+    // the SAME base ease and both still map 0 to 0 and 1 to 1, so the panel
+    // starts on the card and lands on the stylesheet's layout exactly as it
+    // did -- only the path between them changes. The horizontal edges stay on
+    // the base curve; the complaint was never about the sideways travel.
+    const baseEase = gsap.parseEase("power3.inOut");
+    const growPanel = (t) => {
+      const base = baseEase(t);
+      const down = base ** (1 - PANEL_DOWNWARD_BIAS);
+      const up = base ** (1 + PANEL_DOWNWARD_BIAS);
+      const top = lerp(panelFrom.top, panelTo.top, up);
+      const bottom = lerp(panelFrom.bottom, bottomTo, down);
+      const left = lerp(panelFrom.left, panelTo.left, base);
+      const right = lerp(panelFrom.right, panelTo.right, base);
+      // only what has actually gone past the fold needs cancelling; before
+      // that the panel is still a card-sized box on screen
+      const belowFold = Math.max(0, bottom - panelTo.bottom);
+      Object.assign(panel.style, {
+        left: `${left}px`,
+        top: `${top}px`,
+        width: `${right - left}px`,
+        height: `${bottom - top}px`,
+        paddingBottom: `${basePadBottom + belowFold}px`,
+        // driven here rather than as its own tween so it can track top-left
+        // exactly -- see joiningCorner
+        [JOINING_CORNER]: `${joiningCorner(base)}px`,
+      });
+    };
+
+    const grow = { t: 0 };
+    gsap.to(grow, {
+      t: 1,
+      duration: FLIGHT_SECONDS,
+      // the shaping lives in growPanel, so the tween itself runs on raw time
+      ease: "none",
+      onUpdate: () => growPanel(grow.t),
+      onComplete() {
+        // hand the panel back to the stylesheet's own layout
+        gsap.set(panel, {
+          clearProps: "position,zIndex,left,top,width,height,paddingBottom," + CORNERS.join(","),
+        });
+        gsap.set(contents, { clearProps: "visibility" });
+      },
+    });
+    gsap.to(contents, {
+      opacity: 1,
+      visibility: "visible",
+      duration: 0.3,
+      ease: "power2.out",
+      // power3.inOut has the box ~95% grown by here, so the text lands in a
+      // layout that is already the final one
+      delay: FLIGHT_SECONDS * 0.72,
+    });
+  }
+
+  const stageRect = unionRect(from, to);
+  cardCanvas.classList.add("flight-canvas");
+  cardCanvas.style.left = `${stageRect.left}px`;
+  cardCanvas.style.top = `${stageRect.top}px`;
+  cardCanvas.style.width = `${stageRect.width}px`;
+  cardCanvas.style.height = `${stageRect.height}px`;
+  document.body.appendChild(cardCanvas);
+
+  const fromFraming = cardFraming(character);
+  const toFraming = detailFraming(character);
+
+  const apply = (t) => {
+    // Full detail across both ends of the flight, reduced only through the
+    // fast middle. setSize early-returns when the pixel size is unchanged, so
+    // this reallocates exactly twice across the whole flight (entering and
+    // leaving the fast stretch) rather than the once it used to -- and both
+    // happen in the same task as the render below, so the wipe a reallocation
+    // causes is never what gets painted.
+    const sharp = t <= FLIGHT_SHARP_EDGE || t >= 1 - FLIGHT_SHARP_EDGE;
+    const renderScale = sharp ? 1 : FLIGHT_RENDER_SCALE;
+    viewer.setSize(stageRect.width, stageRect.height, renderScale);
+    viewer.setProjectedFraming(
+      lerpRect(from, to, t),
+      stageRect,
+      lerp(fromFraming.distanceScale, toFraming.distanceScale, t),
+      lerp(fromFraming.verticalAnchor, toFraming.verticalAnchor, t)
+    );
+    viewer.render();
+  };
+  apply(0);
+
+  // Opacity only, never transform: the panel and character are both flying
+  // toward rects measured against this layout, so it must not move. The panel
+  // itself is excluded -- it grows opaque rather than fading in.
+  const chrome = [view.querySelector(".close-row"), view.querySelector(".detail-rail")].filter(Boolean);
+  gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.34, ease: "power2.out", delay: 0.12 });
+
+  // the card's text holds its place while the panel grows out from under it,
+  // then hands over to the detail panel's own title as that fades in
+  if (cardTextGhost) {
+    gsap.to(cardTextGhost, {
+      opacity: 0,
+      duration: FLIGHT_SECONDS * (CARD_TEXT_FADE_TO - CARD_TEXT_FADE_FROM),
+      ease: "power2.in",
+      delay: FLIGHT_SECONDS * CARD_TEXT_FADE_FROM,
+      onComplete() {
+        cardTextGhost.remove();
+      },
+    });
+  }
+
+  if (gridFooter) {
+    gsap.to(gridFooter, {
+      opacity: 0,
+      duration: FOOTER_FADE_SECONDS,
+      ease: "power2.in",
+      onComplete() {
+        gridFooter.remove();
+      },
+    });
+  }
+
+  // The cards left behind drop, tilt and fade instead of being cut. They are
+  // static bitmaps by now (their viewers are disposed), so this is pure
+  // compositor work and costs the flight nothing.
+  if (leaving.length) {
+    // ranked by how far each card sits from the clicked one, left and right
+    // counted separately, so the stagger ripples outward from the pick rather
+    // than sweeping across the row in DOM order
+    const ranks = new Map();
+    for (const side of [-1, 1]) {
+      leaving
+        .filter(({ rect }) => Math.sign(rect.left - clickedLeft) === side)
+        .sort((a, b) => side * (a.rect.left - b.rect.left))
+        .forEach(({ card }, rank) => ranks.set(card, { side, rank }));
+    }
+
+    // collects only the cards it animated -- the text ghost and the footer are
+    // on their own, longer schedules and must not be swept up with them
+    const exit = gsap.timeline({
+      onComplete() {
+        for (const { card } of leaving) card.remove();
+      },
+    });
+    for (const { card } of leaving) {
+      const { side, rank } = ranks.get(card) ?? { side: 1, rank: 0 };
+      const at = rank * CARD_EXIT_STAGGER;
+      exit.to(
+        card,
+        {
+          y: CARD_EXIT_DROP * (1 + rank * 0.14),
+          rotation: side * CARD_EXIT_TILT * (1 + rank * 0.22),
+          duration: CARD_EXIT_SECONDS,
+          ease: CARD_EXIT_EASE,
+          // pivot at the top edge, so the tilt swings each card's weight out
+          // and down rather than spinning it about its middle
+          transformOrigin: "50% 0%",
+        },
+        at
+      );
+      // Fade kept off the springy ease and on its own curve: back.in starts by
+      // running backwards, which on opacity means overshooting past fully
+      // opaque and then dumping to zero at the very end. Holding the card
+      // visible through the wind-up and fading it as it actually leaves is
+      // what makes the spring legible.
+      exit.to(
+        card,
+        { opacity: 0, duration: CARD_EXIT_SECONDS * 0.8, ease: "power2.in" },
+        at + CARD_EXIT_SECONDS * 0.2
+      );
+    }
+  }
+
+  const progress = { t: 0 };
+  gsap.to(progress, {
+    t: 1,
+    duration: FLIGHT_SECONDS,
+    ease: "power3.inOut",
+    onUpdate: () => apply(progress.t),
+    onComplete() {
+      // The handover has to wait for the mascot to have PIXELS, not merely to
+      // exist. Revealing it and dropping the flight canvas in this task left a
+      // frame with the character nowhere on screen at all (measured: zero
+      // character pixels) -- the flight canvas gone, the mascot still blank
+      // because the render loop's rAF had not come round yet. The mascot's
+      // model is already cached by the card that flew here, so onReady lands
+      // on a microtask -- still inside this frame, before anything is painted.
+      let landed = false;
+      const land = () => {
+        if (landed) return;
+        landed = true;
+        clearTimeout(timer);
+        target.style.visibility = "";
+        cardCanvas.remove();
+        renderLoop.remove(viewer);
+      };
+      const timer = setTimeout(land, LANDING_TIMEOUT);
+      mountMascotViewer(land);
+    },
+  });
+
+  return true;
+}
+
+function showDetail(characterId, cardCanvas) {
+  const character = getCharacter(characterId);
   state.view = "detail";
   state.detailId = characterId;
+  // falls back to the plain mount when there is nothing to fly from (the
+  // rail's next-character link), so the flight is an enhancement, never a
+  // dependency
+  if (cardCanvas && flyToDetail(character, cardCanvas)) return;
   mount(() => buildDetailView(characterId));
 }
 
