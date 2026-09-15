@@ -479,14 +479,32 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     // the fit distance is derived from the aspect, so a resize has to re-frame
     // or the character keeps a fit computed for the old shape
     reframe();
-    invalidate();
+    // Assigning canvas.width above WIPED the canvas. Draw again now, in this
+    // same task, rather than flagging it and letting the render loop catch up
+    // on its next rAF: a ResizeObserver fires after layout but before paint,
+    // so a wipe left unpainted here reaches the compositor as an empty canvas
+    // -- one frame with the character simply gone. That is exactly the flash
+    // that showed at the start of every flight, where lifting the card's
+    // canvas out and resizing it to the flight stage triggers a resize
+    // notification inside the very frame the flight begins.
+    render();
   }
 
   function resize() {
     setSize(canvas.clientWidth, canvas.clientHeight);
   }
 
-  const resizeObserver = new ResizeObserver(resize);
+  // contentRect is fractional; clientWidth/clientHeight are rounded to whole
+  // pixels. The flight sizes this canvas from a union rect that is almost
+  // never integral (1252.29px, say), so reading it back rounded reports a
+  // "new" size on every single flight, and setSize reallocates -- and wipes --
+  // a canvas that had not actually changed size at all. Reading the fractional
+  // box means that comparison matches and the reallocation never happens.
+  const resizeObserver = new ResizeObserver((entries) => {
+    const box = entries[entries.length - 1]?.contentRect;
+    if (box) setSize(box.width, box.height);
+    else resize();
+  });
   resizeObserver.observe(canvas);
 
   setModel(modelUrl).then(() => onReady?.());
