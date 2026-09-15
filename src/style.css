@@ -504,6 +504,10 @@ img {
   top: calc(-11% + var(--detail-shift-y, 0%));
   width: 54%;
   height: 118%;
+  /* the cards' accent halo, carried through to the expanded view. Unlike the
+     flight canvas this one's contents are static, so the blur rasterises once
+     and is cached instead of being redone every frame. */
+  filter: drop-shadow(0 0 var(--aura-size, 10px) var(--aura, transparent));
   /* the character sits on top of everything -- rail, close button and nav --
      so a tall pose reads as passing in front rather than being cut into */
   z-index: 6;

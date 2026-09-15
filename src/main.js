@@ -390,10 +390,12 @@ let mainViewer = null;
 // set when a detail view is built mid-flight; run once the character lands
 let pendingMascot = null;
 
-function mountMascotViewer() {
+// onPainted runs only once the mascot canvas actually has the character drawn
+// into it -- see the mount closure in buildDetailView
+function mountMascotViewer(onPainted) {
   const mount = pendingMascot;
   pendingMascot = null;
-  mount?.();
+  mount?.(onPainted);
 }
 
 function buildDetailView(characterId, { deferMascot = false } = {}) {
@@ -459,6 +461,12 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
   canvas.setAttribute("aria-hidden", "true");
   canvas.style.setProperty("--detail-shift-x", `${character.detailShiftX ?? 0}%`);
   canvas.style.setProperty("--detail-shift-y", `${character.detailShiftY ?? 0}%`);
+  // same accent halo the cards carry, so the character doesn't arrive here
+  // permanently stripped of it. Affordable on this canvas and not on the
+  // flight's precisely because this one is static -- the blur rasterises once
+  // and is cached, rather than being redone every frame.
+  canvas.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
+  canvas.style.setProperty("--aura-size", AURA.blur);
   body.appendChild(canvas);
 
   view.appendChild(body);
@@ -466,17 +474,29 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
   // Deferred during a flight: a second full-size viewer rendering the same
   // character while the flight is mid-air doubles the per-frame cost at
   // exactly the wrong moment. mountMascotViewer() is called on landing.
-  const mount = () => {
-    mainViewer = createViewer(canvas, {
+  const mount = (onPainted) => {
+    // held locally rather than read back off mainViewer: onReady fires a
+    // microtask later, by which point a fast second navigation may already
+    // have pointed mainViewer at a different character's viewer
+    const viewer = createViewer(canvas, {
       modelUrl: character.model,
       ...detailFraming(character),
       yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
       rimColor: character.rimColor ?? character.gradient[0],
       spinSpeed: 0,
       interactive: true,
+      // onReady fires once the model is loaded and framed -- but nothing has
+      // been DRAWN yet: the render loop is a separate rAF callback and would
+      // not reach this viewer until the next frame. Draw synchronously here so
+      // the canvas is never handed to the flight (or to the user) blank.
+      onReady: () => {
+        viewer.render();
+        onPainted?.();
+      },
     });
-    renderLoop.add(mainViewer);
-    state.viewers.push(mainViewer);
+    mainViewer = viewer;
+    renderLoop.add(viewer);
+    state.viewers.push(viewer);
   };
 
   if (deferMascot) pendingMascot = mount;
@@ -503,10 +523,26 @@ function showGrid() {
 }
 
 const FLIGHT_SECONDS = 0.62;
-// render fewer pixels while the character is in motion and let the browser
+// render fewer pixels while the character is IN MOTION and let the browser
 // scale the bitmap up; at speed the softness is invisible and it keeps the
-// per-frame cost well clear of the frame budget
+// per-frame cost well clear of the frame budget.
+//
+// Applied only through the middle of the flight. Holding it across the whole
+// move meant the first painted frame was 25% softer than the card the user had
+// just been looking at, and the last one 25% softer than the mascot that
+// replaced it -- a sharpness pop at each end of an otherwise continuous move,
+// with nothing moving to hide it.
 const FLIGHT_RENDER_SCALE = 0.75;
+// How much of each end of the flight renders at full resolution. power3.inOut
+// is at its slowest here, so these are both the frames where softness reads
+// most plainly and the frames that sit against a static card or mascot. It
+// cannot be the endpoints alone: the t=1 frame is never painted -- the landing
+// swap replaces it within the same frame -- so the match has to be in place
+// several frames before the end.
+const FLIGHT_SHARP_EDGE = 0.12;
+// if the mascot's model somehow never resolves, don't strand the flight canvas
+// on top of the page forever
+const LANDING_TIMEOUT = 2000;
 
 // Carries the character from its card into the detail layout as one continuous
 // move rather than cross-fading between two separately drawn copies.
@@ -617,13 +653,20 @@ function flyToDetail(character, cardCanvas) {
   cardCanvas.style.width = `${stageRect.width}px`;
   cardCanvas.style.height = `${stageRect.height}px`;
   document.body.appendChild(cardCanvas);
-  // the one and only allocation for the whole flight
-  viewer.setSize(stageRect.width, stageRect.height, FLIGHT_RENDER_SCALE);
 
   const fromFraming = cardFraming(character);
   const toFraming = detailFraming(character);
 
   const apply = (t) => {
+    // Full detail across both ends of the flight, reduced only through the
+    // fast middle. setSize early-returns when the pixel size is unchanged, so
+    // this reallocates exactly twice across the whole flight (entering and
+    // leaving the fast stretch) rather than the once it used to -- and both
+    // happen in the same task as the render below, so the wipe a reallocation
+    // causes is never what gets painted.
+    const sharp = t <= FLIGHT_SHARP_EDGE || t >= 1 - FLIGHT_SHARP_EDGE;
+    const renderScale = sharp ? 1 : FLIGHT_RENDER_SCALE;
+    viewer.setSize(stageRect.width, stageRect.height, renderScale);
     viewer.setProjectedFraming(
       lerpRect(from, to, t),
       stageRect,
@@ -647,10 +690,24 @@ function flyToDetail(character, cardCanvas) {
     ease: "power3.inOut",
     onUpdate: () => apply(progress.t),
     onComplete() {
-      mountMascotViewer();
-      target.style.visibility = "";
-      cardCanvas.remove();
-      renderLoop.remove(viewer);
+      // The handover has to wait for the mascot to have PIXELS, not merely to
+      // exist. Revealing it and dropping the flight canvas in this task left a
+      // frame with the character nowhere on screen at all (measured: zero
+      // character pixels) -- the flight canvas gone, the mascot still blank
+      // because the render loop's rAF had not come round yet. The mascot's
+      // model is already cached by the card that flew here, so onReady lands
+      // on a microtask -- still inside this frame, before anything is painted.
+      let landed = false;
+      const land = () => {
+        if (landed) return;
+        landed = true;
+        clearTimeout(timer);
+        target.style.visibility = "";
+        cardCanvas.remove();
+        renderLoop.remove(viewer);
+      };
+      const timer = setTimeout(land, LANDING_TIMEOUT);
+      mountMascotViewer(land);
     },
   });
 
