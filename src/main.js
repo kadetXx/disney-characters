@@ -573,6 +573,22 @@ const CARD_EXIT_DROP = 84;
 const CARD_EXIT_TILT = 4.5;
 // each card further out starts this much later, rippling outward from the pick
 const CARD_EXIT_STAGGER = 0.04;
+
+// The clicked card's own title and movie line are carried across the flight as
+// a ghost, because nothing else covers that gap: the real card dies with the
+// grid, and the detail panel's contents cannot appear until late (they are
+// laid out against a padding-left of up to 620px, so at card width the badge
+// spills out and the description clips). Without this the text blinks out on
+// the very first frame of the flight and fades back in two thirds of the way
+// through -- read as a flash right at the click.
+//
+// Fades out across this window, which overlaps the detail contents fading in,
+// so the two crossfade rather than leaving a gap with no text at all.
+const CARD_TEXT_FADE_FROM = 0.5;
+const CARD_TEXT_FADE_TO = 0.95;
+// the grid footer is chrome rather than a card, so it just fades rather than
+// dropping and tilting -- but it has to go somewhere, not vanish with the grid
+const FOOTER_FADE_SECONDS = 0.22;
 // back.in loads up against the drop before releasing it -- the card lifts and
 // counter-rotates a few pixels first, which is what reads as spring rather
 // than as a card simply being translated downward.
@@ -638,6 +654,10 @@ function flyToDetail(character, cardCanvas) {
 
   const clickedLeft = clickedCard?.getBoundingClientRect().left ?? 0;
 
+  // measured before the teardown, pinned after it
+  const gridFooter = app.querySelector(".grid-footer");
+  const footerFrom = gridFooter?.getBoundingClientRect();
+
   // hand the viewer to the flight before clearViewers() can dispose it
   state.viewers = state.viewers.filter((v) => v !== viewer);
 
@@ -680,6 +700,48 @@ function flyToDetail(character, cardCanvas) {
     });
     document.body.appendChild(card);
     outgoingCards.push(card);
+  }
+
+  // A copy of the clicked card's panel, stripped to just its text. Cloning the
+  // whole panel rather than lifting the title and movie line individually is
+  // what makes the text land exactly where it already was -- it inherits the
+  // panel's own padding, font sizes and flex-end alignment for free, so there
+  // is no second set of numbers to keep in step with the stylesheet. The
+  // background and shadow come off because the real detail panel is already
+  // drawing those, directly underneath.
+  let cardTextGhost = null;
+  if (cardPanel && panelFrom) {
+    cardTextGhost = cardPanel.cloneNode(true);
+    Object.assign(cardTextGhost.style, {
+      position: "fixed",
+      margin: "0",
+      left: `${panelFrom.left}px`,
+      top: `${panelFrom.top}px`,
+      width: `${panelFrom.width}px`,
+      height: `${panelFrom.height}px`,
+      background: "none",
+      boxShadow: "none",
+      // above the growing panel (5), below the character in flight (60)
+      zIndex: "6",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(cardTextGhost);
+    outgoingCards.push(cardTextGhost);
+  }
+
+  if (gridFooter && footerFrom) {
+    Object.assign(gridFooter.style, {
+      position: "fixed",
+      margin: "0",
+      left: `${footerFrom.left}px`,
+      top: `${footerFrom.top}px`,
+      width: `${footerFrom.width}px`,
+      height: `${footerFrom.height}px`,
+      zIndex: "2",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(gridFooter);
+    outgoingCards.push(gridFooter);
   }
 
   // the clicked card goes with the grid: its character is already the flight
@@ -871,6 +933,31 @@ function flyToDetail(character, cardCanvas) {
   const chrome = [view.querySelector(".close-row"), view.querySelector(".detail-rail")].filter(Boolean);
   gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.34, ease: "power2.out", delay: 0.12 });
 
+  // the card's text holds its place while the panel grows out from under it,
+  // then hands over to the detail panel's own title as that fades in
+  if (cardTextGhost) {
+    gsap.to(cardTextGhost, {
+      opacity: 0,
+      duration: FLIGHT_SECONDS * (CARD_TEXT_FADE_TO - CARD_TEXT_FADE_FROM),
+      ease: "power2.in",
+      delay: FLIGHT_SECONDS * CARD_TEXT_FADE_FROM,
+      onComplete() {
+        cardTextGhost.remove();
+      },
+    });
+  }
+
+  if (gridFooter) {
+    gsap.to(gridFooter, {
+      opacity: 0,
+      duration: FOOTER_FADE_SECONDS,
+      ease: "power2.in",
+      onComplete() {
+        gridFooter.remove();
+      },
+    });
+  }
+
   // The cards left behind drop, tilt and fade instead of being cut. They are
   // static bitmaps by now (their viewers are disposed), so this is pure
   // compositor work and costs the flight nothing.
@@ -886,7 +973,13 @@ function flyToDetail(character, cardCanvas) {
         .forEach(({ card }, rank) => ranks.set(card, { side, rank }));
     }
 
-    const exit = gsap.timeline({ onComplete: dropOutgoingCards });
+    // collects only the cards it animated -- the text ghost and the footer are
+    // on their own, longer schedules and must not be swept up with them
+    const exit = gsap.timeline({
+      onComplete() {
+        for (const { card } of leaving) card.remove();
+      },
+    });
     for (const { card } of leaving) {
       const { side, rank } = ranks.get(card) ?? { side: 1, rank: 0 };
       const at = rank * CARD_EXIT_STAGGER;
