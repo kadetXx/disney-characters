@@ -54,22 +54,24 @@ function detailFraming(character) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-// The left pair travels with the growing box; the right pair holds the card's
-// own radius until the box has essentially arrived. See the two corner tweens
-// in flyToDetail for why they are treated differently.
-const LEFT_CORNERS = ["borderTopLeftRadius", "borderBottomLeftRadius"];
-const RIGHT_CORNERS = ["borderTopRightRadius", "borderBottomRightRadius"];
-const CORNERS = [...LEFT_CORNERS, ...RIGHT_CORNERS];
+// Top-left is the only corner that grows INTO something -- the detail panel's
+// big sweep -- so it is the only one worth carrying through the move. The
+// other three all resolve to a square 0, and straightening them early reads as
+// the panel losing its shape before it has arrived; they hold the card's own
+// radius until the box is essentially in position. See flyToDetail.
+const GROWING_CORNERS = ["borderTopLeftRadius"];
+const LATE_CORNERS = [
+  "borderTopRightRadius",
+  "borderBottomRightRadius",
+  "borderBottomLeftRadius",
+];
+const CORNERS = [...GROWING_CORNERS, ...LATE_CORNERS];
 
 // computed corner radii in px, so the card's own rounding can morph into the
 // detail panel's single huge top-left corner
 function readCorners(el) {
   const style = getComputedStyle(el);
   return Object.fromEntries(CORNERS.map((corner) => [corner, style[corner]]));
-}
-
-function rectStyle(rect) {
-  return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
 }
 
 const lerpRect = (a, b, t) => ({
@@ -573,6 +575,15 @@ const CARD_EXIT_STAGGER = 0.04;
 // than as a card simply being translated downward.
 const CARD_EXIT_EASE = "back.in(2.2)";
 
+// How much the panel's bottom edge runs ahead of its top edge while the box
+// grows. 0 drives both off one ease, which is what made the expansion read as
+// going up-and-away from the card: the end state only puts a little more
+// travel below the card than above it (167px down vs 145px up at 1440x900),
+// and the box is racing ~685px leftward at the same time, so an even vertical
+// split gets read as upward. Running the bottom down early makes the panel
+// descend as it opens. Both edges still start and finish together.
+const PANEL_DOWNWARD_BIAS = 0.45;
+
 // Carries the character from its card into the detail layout as one continuous
 // move rather than cross-fading between two separately drawn copies.
 //
@@ -695,44 +706,75 @@ function flyToDetail(character, cardCanvas) {
     // touches once settled, sitting at --detail-inset). The rail is z-index 3,
     // so without this its vertical name labels show straight through the
     // growing box. Cleared on landing so normal stacking resumes.
-    gsap.set(panel, {
+    // Written straight to the element, like the card pins above: the box this
+    // establishes is what every frame below is measured against, so it has to
+    // hold in this same task rather than waiting on the global timeline.
+    Object.assign(panel.style, {
       position: "fixed",
-      zIndex: 5,
-      ...rectStyle(panelFrom),
+      zIndex: "5",
+      left: `${panelFrom.left}px`,
+      top: `${panelFrom.top}px`,
+      width: `${panelFrom.width}px`,
+      height: `${panelFrom.height}px`,
       ...panelFromCorners,
     });
-    // The two corner pairs are treated differently, because they are doing
-    // different jobs.
+    // The corners are split by what they are actually doing.
     //
-    // The LEFT corners are the ones the eye follows: the top-left in
-    // particular is the detail panel's signature sweep, and it stays on screen
-    // the whole way. Growing it in step with the box, on the box's own ease,
-    // makes the radius read as part of the same expansion rather than
-    // something that happens to the panel after it arrives.
+    // Top-left is the detail panel's signature sweep and the one the eye
+    // follows, on screen the whole way. Growing it in step with the box, on
+    // the box's own ease, makes the radius read as part of the same expansion
+    // rather than something that happens to the panel after it arrives.
     const pick = (corners) =>
       Object.fromEntries(corners.map((corner) => [corner, panelToCorners[corner]]));
 
     gsap.to(panel, {
-      ...pick(LEFT_CORNERS),
+      ...pick(GROWING_CORNERS),
       duration: FLIGHT_SECONDS,
       ease: "power3.inOut",
     });
 
-    // The RIGHT corners hold the card's own radius until the box is
-    // essentially in position. Growing these alongside the box makes the card
-    // stop reading as itself early on, and they cost nothing to defer -- by
-    // the time they change they have both left the screen.
+    // The other three are all headed for a square 0, and a corner going square
+    // while the box is still moving reads as the panel straightening out
+    // before it has landed -- the bottom edge especially, which stays in view
+    // the whole way. They hold the card's own radius and only square off once
+    // the box is essentially in position.
     gsap.to(panel, {
-      ...pick(RIGHT_CORNERS),
+      ...pick(LATE_CORNERS),
       duration: FLIGHT_SECONDS * 0.34,
       ease: "power2.inOut",
       delay: FLIGHT_SECONDS * 0.66,
     });
 
-    gsap.to(panel, {
-      ...rectStyle(panelTo),
+    // The box is driven edge by edge rather than as one rect, so the bottom
+    // can run ahead of the top (see PANEL_DOWNWARD_BIAS). Both warps are of
+    // the SAME base ease and both still map 0 to 0 and 1 to 1, so the panel
+    // starts on the card and lands on the stylesheet's layout exactly as it
+    // did -- only the path between them changes. The horizontal edges stay on
+    // the base curve; the complaint was never about the sideways travel.
+    const baseEase = gsap.parseEase("power3.inOut");
+    const growPanel = (t) => {
+      const base = baseEase(t);
+      const down = base ** (1 - PANEL_DOWNWARD_BIAS);
+      const up = base ** (1 + PANEL_DOWNWARD_BIAS);
+      const top = lerp(panelFrom.top, panelTo.top, up);
+      const bottom = lerp(panelFrom.bottom, panelTo.bottom, down);
+      const left = lerp(panelFrom.left, panelTo.left, base);
+      const right = lerp(panelFrom.right, panelTo.right, base);
+      Object.assign(panel.style, {
+        left: `${left}px`,
+        top: `${top}px`,
+        width: `${right - left}px`,
+        height: `${bottom - top}px`,
+      });
+    };
+
+    const grow = { t: 0 };
+    gsap.to(grow, {
+      t: 1,
       duration: FLIGHT_SECONDS,
-      ease: "power3.inOut",
+      // the shaping lives in growPanel, so the tween itself runs on raw time
+      ease: "none",
+      onUpdate: () => growPanel(grow.t),
       onComplete() {
         // hand the panel back to the stylesheet's own layout
         gsap.set(panel, { clearProps: "position,zIndex,left,top,width,height," + CORNERS.join(",") });
