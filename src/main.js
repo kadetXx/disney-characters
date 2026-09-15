@@ -54,18 +54,21 @@ function detailFraming(character) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-// Top-left is the only corner that grows INTO something -- the detail panel's
-// big sweep -- so it is the only one worth carrying through the move. The
-// other three all resolve to a square 0, and straightening them early reads as
-// the panel losing its shape before it has arrived; they hold the card's own
-// radius until the box is essentially in position. See flyToDetail.
+// Top-left grows INTO something -- the detail panel's big sweep -- so it is
+// carried through the whole move.
 const GROWING_CORNERS = ["borderTopLeftRadius"];
-const LATE_CORNERS = [
-  "borderTopRightRadius",
-  "borderBottomRightRadius",
-  "borderBottomLeftRadius",
-];
-const CORNERS = [...GROWING_CORNERS, ...LATE_CORNERS];
+// Bottom-left does both jobs in turn, so it is driven by hand in flyToDetail:
+// it rides the top-left's growth up, rounding the whole left edge with it, and
+// only straightens once the box has arrived.
+const JOINING_CORNER = "borderBottomLeftRadius";
+// The right pair simply resolve to a square 0. Straightening early reads as
+// the panel losing its shape before it has landed, so they hold the card's own
+// radius until the box is essentially in position.
+const LATE_CORNERS = ["borderTopRightRadius", "borderBottomRightRadius"];
+const CORNERS = [...GROWING_CORNERS, JOINING_CORNER, ...LATE_CORNERS];
+
+// where along the flight the corners that end square start squaring off
+const CORNER_SPLIT = 0.66;
 
 // computed corner radii in px, so the card's own rounding can morph into the
 // detail panel's single huge top-left corner
@@ -733,17 +736,35 @@ function flyToDetail(character, cardCanvas) {
       ease: "power3.inOut",
     });
 
-    // The other three are all headed for a square 0, and a corner going square
-    // while the box is still moving reads as the panel straightening out
-    // before it has landed -- the bottom edge especially, which stays in view
-    // the whole way. They hold the card's own radius and only square off once
-    // the box is essentially in position.
+    // The right pair are headed for a square 0, and a corner going square while
+    // the box is still moving reads as the panel straightening out before it
+    // has landed. They hold the card's own radius and only square off once the
+    // box is essentially in position.
     gsap.to(panel, {
       ...pick(LATE_CORNERS),
-      duration: FLIGHT_SECONDS * 0.34,
+      duration: FLIGHT_SECONDS * (1 - CORNER_SPLIT),
       ease: "power2.inOut",
-      delay: FLIGHT_SECONDS * 0.66,
+      delay: FLIGHT_SECONDS * CORNER_SPLIT,
     });
+
+    // Bottom-left is the one corner that does both things. It starts on the
+    // card's radius exactly as top-left does, so for the first stretch it can
+    // simply BE top-left -- the two rise together and the whole left edge
+    // rounds as the panel opens. Then it straightens, on the same beat as the
+    // right pair.
+    //
+    // Multiplying by a 1 -> 0 factor rather than tweening to 0 separately is
+    // what keeps that hand-off invisible: power2.inOut leaves the factor at 1
+    // with zero slope at the split, so bottom-left's velocity there is still
+    // exactly top-left's and there is no kink where the two phases meet.
+    const fromTopLeft = parseFloat(panelFromCorners.borderTopLeftRadius) || 0;
+    const toTopLeft = parseFloat(panelToCorners.borderTopLeftRadius) || 0;
+    const straightenEase = gsap.parseEase("power2.inOut");
+    const joiningCorner = (t, base) => {
+      const riding = lerp(fromTopLeft, toTopLeft, base);
+      if (t <= CORNER_SPLIT) return riding;
+      return riding * (1 - straightenEase((t - CORNER_SPLIT) / (1 - CORNER_SPLIT)));
+    };
 
     // The box is driven edge by edge rather than as one rect, so the bottom
     // can run ahead of the top (see PANEL_DOWNWARD_BIAS). Both warps are of
@@ -765,6 +786,9 @@ function flyToDetail(character, cardCanvas) {
         top: `${top}px`,
         width: `${right - left}px`,
         height: `${bottom - top}px`,
+        // driven here rather than as its own tween so it can track top-left
+        // through the growth before straightening -- see joiningCorner
+        [JOINING_CORNER]: `${joiningCorner(t, base)}px`,
       });
     };
 
