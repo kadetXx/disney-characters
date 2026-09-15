@@ -268,7 +268,9 @@ img {
      Nothing else shifts: the text is bottom-aligned inside it, and the
      character's canvas is positioned against the card box, not the panel. */
   height: calc(var(--card-w) * var(--panel-ratio, 1.06));
-  border-radius: 28px;
+  /* also where the flight's corner morph starts from, so it sets how round the
+     panel reads before it expands */
+  border-radius: 40px;
   /* reference leaves ~14% of the panel height empty below the text block
      (measured off the Disgust card: panel 599-1112, text bottom at 86% down) */
   padding: 26px calc(var(--card-w) * 0.085) calc(var(--card-h) * 0.065);

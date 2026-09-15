@@ -54,14 +54,14 @@ function detailFraming(character) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const CORNERS = [
-  "borderTopLeftRadius",
-  "borderTopRightRadius",
-  "borderBottomRightRadius",
-  "borderBottomLeftRadius",
-];
+// The left pair travels with the growing box; the right pair holds the card's
+// own radius until the box has essentially arrived. See the two corner tweens
+// in flyToDetail for why they are treated differently.
+const LEFT_CORNERS = ["borderTopLeftRadius", "borderBottomLeftRadius"];
+const RIGHT_CORNERS = ["borderTopRightRadius", "borderBottomRightRadius"];
+const CORNERS = [...LEFT_CORNERS, ...RIGHT_CORNERS];
 
-// computed corner radii in px, so the card's 28px corners can morph into the
+// computed corner radii in px, so the card's own rounding can morph into the
 // detail panel's single huge top-left corner
 function readCorners(el) {
   const style = getComputedStyle(el);
@@ -509,7 +509,18 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
 /* View switching                                                     */
 /* ------------------------------------------------------------------ */
 
+// Cards still playing their exit animation. They live on <body> rather than in
+// #app, so nothing that rebuilds #app can clear them -- this list is how they
+// get collected if the user navigates again mid-exit.
+let outgoingCards = [];
+
+function dropOutgoingCards() {
+  for (const card of outgoingCards) card.remove();
+  outgoingCards = [];
+}
+
 function mount(buildFn) {
+  dropOutgoingCards();
   clearViewers();
   app.innerHTML = "";
   const view = buildFn();
@@ -544,6 +555,24 @@ const FLIGHT_SHARP_EDGE = 0.12;
 // on top of the page forever
 const LANDING_TIMEOUT = 2000;
 
+// The cards that were NOT clicked don't disappear with the grid -- they drop
+// away and fade while the chosen one flies. Well short of the flight so the
+// grid has cleared long before the detail panel finishes growing over it.
+const CARD_EXIT_SECONDS = 0.3;
+// how far a card falls, in px. Scaled up slightly with distance from the
+// clicked card so the row spreads apart as it goes rather than moving as a
+// single slab.
+const CARD_EXIT_DROP = 84;
+// degrees. Cards to the left of the clicked one tilt one way and cards to the
+// right the other, so the row parts around the character being chosen.
+const CARD_EXIT_TILT = 4.5;
+// each card further out starts this much later, rippling outward from the pick
+const CARD_EXIT_STAGGER = 0.04;
+// back.in loads up against the drop before releasing it -- the card lifts and
+// counter-rotates a few pixels first, which is what reads as spring rather
+// than as a card simply being translated downward.
+const CARD_EXIT_EASE = "back.in(2.2)";
+
 // Carries the character from its card into the detail layout as one continuous
 // move rather than cross-fading between two separately drawn copies.
 //
@@ -564,22 +593,81 @@ function flyToDetail(character, cardCanvas) {
   const from = cardCanvas.getBoundingClientRect();
   if (!from.width || !from.height) return false;
 
+  dropOutgoingCards();
+
+  // everything below needs the clicked card's own DOM, so resolve it before
+  // the canvas is lifted out of it
+  const clickedCard = cardCanvas.closest(".char-card");
+
   // the card's coloured panel, measured before the grid is torn down -- the
   // detail panel will start life at exactly this box so it reads as this card
   // growing rather than a new panel appearing
-  const cardPanel = cardCanvas.closest(".char-card")?.querySelector(".char-card-panel");
+  const cardPanel = clickedCard?.querySelector(".char-card-panel");
   const panelFrom = cardPanel?.getBoundingClientRect();
   const panelFromCorners = cardPanel ? readCorners(cardPanel) : null;
+
+  // The cards that are staying behind, measured while the grid is still laid
+  // out. Only the ones actually on screen: the carousel can be scrolled, and
+  // there is no point animating cards parked off the side of the viewport.
+  const leaving = [...app.querySelectorAll(".char-card")]
+    .filter((card) => card !== clickedCard)
+    .map((card) => ({ card, rect: card.getBoundingClientRect() }))
+    .filter(({ rect }) => rect.right > 0 && rect.left < window.innerWidth);
+
+  const clickedLeft = clickedCard?.getBoundingClientRect().left ?? 0;
 
   // hand the viewer to the flight before clearViewers() can dispose it
   state.viewers = state.viewers.filter((v) => v !== viewer);
 
+  // Dispose the other cards' viewers FIRST, before the grid is repositioned
+  // below. dispose() only stops them rendering and disconnects their
+  // ResizeObservers -- it leaves each 2D canvas holding its last painted
+  // frame, which is exactly what the exit animation needs. Order matters:
+  // setSize() does not check `disposed`, so an observer still live when the
+  // grid moves would assign canvas.width and wipe the very pixels being
+  // faded out.
+  clearViewers();
+
+  // The cards fly out rather than vanishing. Each is pinned to the viewport at
+  // the exact box it already occupies and lifted onto <body>, which buys three
+  // things at once: the teardown below cannot delete them, position:fixed
+  // escapes .carousel-track's overflow (hidden on one axis clips BOTH, so a
+  // card sliding down inside the track would be sheared off at its edge), and
+  // nothing has to re-resolve the grid's flex layout -- pinning the whole
+  // .grid-view instead made its justify-content:flex-end column rebuild on
+  // re-parent and threw every card to the bottom of the viewport for a frame.
+  //
+  // z-index 2 puts them above the detail view's background but below the rail,
+  // close row and growing panel, so the panel sweeps over them as it expands.
+  // Written straight to the element rather than through gsap.set: this is
+  // layout-critical setup, not animation, and it has to be in effect in this
+  // same task -- the card is about to be re-parented onto <body>, where
+  // without it a .char-card is just an inline-block button in normal flow.
+  // gsap.set() only renders through the global timeline, so anything that
+  // pauses that timeline (the scrub harness does) leaves the pin unapplied.
+  for (const { card, rect } of leaving) {
+    Object.assign(card.style, {
+      position: "fixed",
+      margin: "0",
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      zIndex: "2",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(card);
+    outgoingCards.push(card);
+  }
+
+  // the clicked card goes with the grid: its character is already the flight
+  // canvas, and its panel is handed to the detail panel, which starts at
+  // exactly that box with the same gradient
+  app.innerHTML = "";
   // Build the destination at its final size, and WITHOUT the usual fadeIn():
   // that enters from scale(0.96), so any rect measured under it is 4% short
   // and the flight lands in the wrong place. The mascot's own viewer is
   // deferred until landing so it isn't rendering full-size alongside us.
-  clearViewers();
-  app.innerHTML = "";
   const view = buildDetailView(character.id, { deferMascot: true });
   app.appendChild(view);
 
@@ -613,13 +701,29 @@ function flyToDetail(character, cardCanvas) {
       ...rectStyle(panelFrom),
       ...panelFromCorners,
     });
-    // The corners are deliberately NOT part of this tween. Growing the radius
-    // alongside the box makes the card stop reading as itself early on -- it
-    // should keep its own 28px corners while it travels and only take the
-    // detail panel's big sweep once it is essentially in position (by which
-    // point three of the four corners have left the screen anyway).
+    // The two corner pairs are treated differently, because they are doing
+    // different jobs.
+    //
+    // The LEFT corners are the ones the eye follows: the top-left in
+    // particular is the detail panel's signature sweep, and it stays on screen
+    // the whole way. Growing it in step with the box, on the box's own ease,
+    // makes the radius read as part of the same expansion rather than
+    // something that happens to the panel after it arrives.
+    const pick = (corners) =>
+      Object.fromEntries(corners.map((corner) => [corner, panelToCorners[corner]]));
+
     gsap.to(panel, {
-      ...panelToCorners,
+      ...pick(LEFT_CORNERS),
+      duration: FLIGHT_SECONDS,
+      ease: "power3.inOut",
+    });
+
+    // The RIGHT corners hold the card's own radius until the box is
+    // essentially in position. Growing these alongside the box makes the card
+    // stop reading as itself early on, and they cost nothing to defer -- by
+    // the time they change they have both left the screen.
+    gsap.to(panel, {
+      ...pick(RIGHT_CORNERS),
       duration: FLIGHT_SECONDS * 0.34,
       ease: "power2.inOut",
       delay: FLIGHT_SECONDS * 0.66,
@@ -682,6 +786,51 @@ function flyToDetail(character, cardCanvas) {
   // itself is excluded -- it grows opaque rather than fading in.
   const chrome = [view.querySelector(".close-row"), view.querySelector(".detail-rail")].filter(Boolean);
   gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.34, ease: "power2.out", delay: 0.12 });
+
+  // The cards left behind drop, tilt and fade instead of being cut. They are
+  // static bitmaps by now (their viewers are disposed), so this is pure
+  // compositor work and costs the flight nothing.
+  if (leaving.length) {
+    // ranked by how far each card sits from the clicked one, left and right
+    // counted separately, so the stagger ripples outward from the pick rather
+    // than sweeping across the row in DOM order
+    const ranks = new Map();
+    for (const side of [-1, 1]) {
+      leaving
+        .filter(({ rect }) => Math.sign(rect.left - clickedLeft) === side)
+        .sort((a, b) => side * (a.rect.left - b.rect.left))
+        .forEach(({ card }, rank) => ranks.set(card, { side, rank }));
+    }
+
+    const exit = gsap.timeline({ onComplete: dropOutgoingCards });
+    for (const { card } of leaving) {
+      const { side, rank } = ranks.get(card) ?? { side: 1, rank: 0 };
+      const at = rank * CARD_EXIT_STAGGER;
+      exit.to(
+        card,
+        {
+          y: CARD_EXIT_DROP * (1 + rank * 0.14),
+          rotation: side * CARD_EXIT_TILT * (1 + rank * 0.22),
+          duration: CARD_EXIT_SECONDS,
+          ease: CARD_EXIT_EASE,
+          // pivot at the top edge, so the tilt swings each card's weight out
+          // and down rather than spinning it about its middle
+          transformOrigin: "50% 0%",
+        },
+        at
+      );
+      // Fade kept off the springy ease and on its own curve: back.in starts by
+      // running backwards, which on opacity means overshooting past fully
+      // opaque and then dumping to zero at the very end. Holding the card
+      // visible through the wind-up and fading it as it actually leaves is
+      // what makes the spring legible.
+      exit.to(
+        card,
+        { opacity: 0, duration: CARD_EXIT_SECONDS * 0.8, ease: "power2.in" },
+        at + CARD_EXIT_SECONDS * 0.2
+      );
+    }
+  }
 
   const progress = { t: 0 };
   gsap.to(progress, {
