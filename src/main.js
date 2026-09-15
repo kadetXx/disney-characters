@@ -57,9 +57,9 @@ const lerp = (a, b, t) => a + (b - a) * t;
 // Top-left grows INTO something -- the detail panel's big sweep -- so it is
 // carried through the whole move.
 const GROWING_CORNERS = ["borderTopLeftRadius"];
-// Bottom-left does both jobs in turn, so it is driven by hand in flyToDetail:
-// it rides the top-left's growth up, rounding the whole left edge with it, and
-// only straightens once the box has arrived.
+// Bottom-left simply rides top-left the whole way, rounding the left edge with
+// it and never straightening. It gets away with that because the panel's
+// bottom edge overshoots the viewport -- see PANEL_BOTTOM_OVERSHOOT.
 const JOINING_CORNER = "borderBottomLeftRadius";
 // The right pair simply resolve to a square 0. Straightening early reads as
 // the panel losing its shape before it has landed, so they hold the card's own
@@ -587,6 +587,14 @@ const CARD_EXIT_EASE = "back.in(2.2)";
 // descend as it opens. Both edges still start and finish together.
 const PANEL_DOWNWARD_BIAS = 0.45;
 
+// How far past the bottom of the viewport the panel's bottom edge travels,
+// over and above its final radius. The panel keeps growing downward until its
+// rounded bottom-left corner is entirely below the fold -- like dragging a
+// sheet of paper down behind the screen edge -- so the corner never has to
+// straighten on screen. Once it is off the fold the stylesheet's own square
+// bottom is indistinguishable from it, and the landing hand-off is invisible.
+const PANEL_BOTTOM_OVERSHOOT = 8;
+
 // Carries the character from its card into the detail layout as one continuous
 // move rather than cross-fading between two separately drawn copies.
 //
@@ -747,24 +755,28 @@ function flyToDetail(character, cardCanvas) {
       delay: FLIGHT_SECONDS * CORNER_SPLIT,
     });
 
-    // Bottom-left is the one corner that does both things. It starts on the
-    // card's radius exactly as top-left does, so for the first stretch it can
-    // simply BE top-left -- the two rise together and the whole left edge
-    // rounds as the panel opens. Then it straightens, on the same beat as the
-    // right pair.
-    //
-    // Multiplying by a 1 -> 0 factor rather than tweening to 0 separately is
-    // what keeps that hand-off invisible: power2.inOut leaves the factor at 1
-    // with zero slope at the split, so bottom-left's velocity there is still
-    // exactly top-left's and there is no kink where the two phases meet.
+    // Bottom-left starts on the card's radius exactly as top-left does, so it
+    // can simply BE top-left for the whole move: the two rise together and the
+    // entire left edge rounds as the panel opens, with no second phase and no
+    // switch of behaviour to hide.
     const fromTopLeft = parseFloat(panelFromCorners.borderTopLeftRadius) || 0;
     const toTopLeft = parseFloat(panelToCorners.borderTopLeftRadius) || 0;
-    const straightenEase = gsap.parseEase("power2.inOut");
-    const joiningCorner = (t, base) => {
-      const riding = lerp(fromTopLeft, toTopLeft, base);
-      if (t <= CORNER_SPLIT) return riding;
-      return riding * (1 - straightenEase((t - CORNER_SPLIT) / (1 - CORNER_SPLIT)));
-    };
+    const joiningCorner = (base) => lerp(fromTopLeft, toTopLeft, base);
+
+    // ...which only works because the bottom edge outruns the viewport. The
+    // corner's curve occupies the last `radius` pixels of the left edge, so
+    // once the bottom sits a full radius below the fold the curve is entirely
+    // out of sight and the edge reads as straight all the way down. The
+    // stylesheet's resting box -- square, ending exactly at the fold -- looks
+    // identical, which is what makes the hand-off on landing invisible.
+    const bottomTo = panelTo.bottom + toTopLeft + PANEL_BOTTOM_OVERSHOOT;
+
+    // Growing past the fold would otherwise drag the panel's contents down
+    // with it, since they are laid out with space-between against whatever
+    // height the box currently has. Adding the overshoot to the bottom padding
+    // cancels it out of the content box exactly (box-sizing is border-box
+    // throughout), so the text, badge and clips sit where they always did.
+    const basePadBottom = parseFloat(getComputedStyle(panel).paddingBottom) || 0;
 
     // The box is driven edge by edge rather than as one rect, so the bottom
     // can run ahead of the top (see PANEL_DOWNWARD_BIAS). Both warps are of
@@ -778,17 +790,21 @@ function flyToDetail(character, cardCanvas) {
       const down = base ** (1 - PANEL_DOWNWARD_BIAS);
       const up = base ** (1 + PANEL_DOWNWARD_BIAS);
       const top = lerp(panelFrom.top, panelTo.top, up);
-      const bottom = lerp(panelFrom.bottom, panelTo.bottom, down);
+      const bottom = lerp(panelFrom.bottom, bottomTo, down);
       const left = lerp(panelFrom.left, panelTo.left, base);
       const right = lerp(panelFrom.right, panelTo.right, base);
+      // only what has actually gone past the fold needs cancelling; before
+      // that the panel is still a card-sized box on screen
+      const belowFold = Math.max(0, bottom - panelTo.bottom);
       Object.assign(panel.style, {
         left: `${left}px`,
         top: `${top}px`,
         width: `${right - left}px`,
         height: `${bottom - top}px`,
+        paddingBottom: `${basePadBottom + belowFold}px`,
         // driven here rather than as its own tween so it can track top-left
-        // through the growth before straightening -- see joiningCorner
-        [JOINING_CORNER]: `${joiningCorner(t, base)}px`,
+        // exactly -- see joiningCorner
+        [JOINING_CORNER]: `${joiningCorner(base)}px`,
       });
     };
 
@@ -801,7 +817,9 @@ function flyToDetail(character, cardCanvas) {
       onUpdate: () => growPanel(grow.t),
       onComplete() {
         // hand the panel back to the stylesheet's own layout
-        gsap.set(panel, { clearProps: "position,zIndex,left,top,width,height," + CORNERS.join(",") });
+        gsap.set(panel, {
+          clearProps: "position,zIndex,left,top,width,height,paddingBottom," + CORNERS.join(","),
+        });
         gsap.set(contents, { clearProps: "visibility" });
       },
     });
