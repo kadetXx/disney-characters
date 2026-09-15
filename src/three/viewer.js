@@ -141,7 +141,9 @@ function applyFraming(pivot, camera, measurement, distanceScale, verticalAnchor 
   camera.position.set(0, 0, fitDistance * distanceScale);
   camera.near = fitDistance / 100;
   camera.far = fitDistance * 100;
-  camera.updateProjectionMatrix();
+  // this path owns the whole canvas, so drop any window the projected path
+  // left behind (clearViewOffset updates the projection matrix itself)
+  camera.clearViewOffset();
 
   // the camera looks straight down -Z with no roll, so shifting in world Y is a
   // pure screen-space pan -- this lets the canvas be much taller than the
@@ -165,34 +167,45 @@ function applyProjectedFraming(pivot, camera, measurement, rect, canvasRect, dis
   const { size, center } = measurement;
   const verticalFov = (camera.fov * Math.PI) / 180;
 
-  // the distance a canvas of exactly `rect` would have used
+  // the distance a canvas of exactly `rect` would have used -- and the distance
+  // actually used, unchanged: the canvas being larger no longer means pulling
+  // back, because the extra area is added by widening the frustum window below
+  // rather than by zooming out.
   const rectDistance =
     fitDistanceFor(measurement, verticalFov, rect.width / rect.height, verticalAnchor) * distanceScale;
 
-  // vertical FOV maps canvas HEIGHT to world height, so to keep the character
-  // the same size on screen while drawing into a taller canvas, pull back in
-  // proportion to the height ratio
-  const distance = rectDistance * (canvasRect.height / rect.height);
-  camera.position.set(0, 0, distance);
-  camera.near = distance / 100;
-  camera.far = distance * 100;
-  camera.updateProjectionMatrix();
+  camera.position.set(0, 0, rectDistance);
+  camera.near = rectDistance / 100;
+  camera.far = rectDistance * 100;
 
-  // where the character's centre sits on screen under `rect`: the rect's own
-  // centre, pushed down by the anchor (expressed in rect pixels)
-  const rectWorldHeight = 2 * rectDistance * Math.tan(verticalFov / 2);
-  const anchorShiftPx = ((verticalAnchor * size.y) / rectWorldHeight) * rect.height;
-  const screenX = rect.left + rect.width / 2;
-  const screenY = rect.top + rect.height / 2 + anchorShiftPx;
+  // The character is placed exactly as applyFraming would place it for a canvas
+  // of `rect`: centred on the optical axis, then pushed down by the anchor.
+  //
+  // Staying ON the axis is the entire point. The previous version slid the
+  // pivot sideways to position the character within the larger canvas, and a
+  // perspective camera renders anything off its axis at an angle -- so the
+  // model visibly yawed the instant the flight took over from the card, and
+  // yawed back when the mascot took over at the end. Measured on a 1440x900
+  // viewport the character sat 57% of the way to the frustum edge at t=0,
+  // which is 11.4 degrees of unasked-for rotation.
+  pivot.position.set(-center.x, -center.y - verticalAnchor * size.y, -center.z);
 
-  // ...and how far that is from the centre of the canvas we're really drawing
-  // into, converted to world units at the new distance
-  const worldPerPixel = (2 * distance * Math.tan(verticalFov / 2)) / canvasRect.height;
-  const offsetX = (screenX - (canvasRect.left + canvasRect.width / 2)) * worldPerPixel;
-  // screen Y grows downward, world Y grows upward
-  const offsetY = -(screenY - (canvasRect.top + canvasRect.height / 2)) * worldPerPixel;
-
-  pivot.position.set(-center.x + offsetX, -center.y + offsetY, -center.z);
+  // ...so the FRUSTUM moves instead of the model. setViewOffset renders a
+  // window into a larger virtual image: make that virtual image exactly `rect`
+  // (so the pixel scale, and therefore the character's size, is whatever a
+  // canvas of `rect` would have given) and the window exactly `canvasRect`.
+  // The window's offset within the image is then just the difference between
+  // the two boxes' corners -- and the image stays centred on the optical axis,
+  // so the character is rendered dead-on however far off-centre it appears.
+  camera.aspect = rect.width / rect.height;
+  camera.setViewOffset(
+    rect.width,
+    rect.height,
+    canvasRect.left - rect.left,
+    canvasRect.top - rect.top,
+    canvasRect.width,
+    canvasRect.height
+  );
 }
 
 /* ------------------------------------------------------------------ */
