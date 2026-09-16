@@ -742,3 +742,25 @@ img {
 .switch-pane {
   transform-origin: left center;
 }
+
+/* ---------------------------------------------------------------- */
+/* Mesh mode (the Menu button)                                      */
+/* ---------------------------------------------------------------- */
+
+/* Drains the colour from everything, via a backdrop rather than a filter on
+   the page. `filter` only reaches its own subtree, and every transition pins
+   its pieces to <body> -- the flight canvas, the leaving cards, the detail
+   panel -- so a filter on .page left all of those flying over in full colour.
+   Moving it to <body> would cover them but makes body a containing block for
+   position:fixed, which is the one thing all that pinning depends on.
+   backdrop-filter changes nothing about layout and filters whatever is painted
+   beneath it, which is the whole page either way. */
+html.mesh-mode body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  -webkit-backdrop-filter: grayscale(1);
+  backdrop-filter: grayscale(1);
+}

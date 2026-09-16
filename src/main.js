@@ -1,6 +1,6 @@
 import gsap from "gsap";
 import { characters, getCharacter, defaultCharacterId } from "./data/characters.js";
-import { createViewer, createRenderLoop, prefetchModel } from "./three/viewer.js";
+import { createViewer, createRenderLoop, prefetchModel, setMeshMode } from "./three/viewer.js";
 
 // the Google Fonts link is preloaded (not render-blocking) in the HTML head --
 // promote it to an active stylesheet once the module script runs
@@ -1044,7 +1044,12 @@ function switchDetail(characterId) {
 
   // the swap that follows the chevron: this one out of the bottom, the next in
   // from the top
-  tl.to(oldCanvas, { y: travel, opacity: 0, duration: SWITCH_SECONDS * 0.6, ease: "power2.in" }, 0);
+  // The one leaving goes quicker than the one arriving, and on a harder curve.
+  // Matching their speeds left two characters sharing the frame for most of
+  // the switch, which is what made it feel crowded rather than smooth -- the
+  // outgoing one has nothing left to say, so it should clear out and leave the
+  // arrival to be the thing you watch.
+  tl.to(oldCanvas, { y: travel, opacity: 0, duration: SWITCH_SECONDS * 0.38, ease: "power3.in" }, 0);
   tl.fromTo(
     newCanvas,
     { y: -travel, opacity: 0 },
@@ -1613,5 +1618,20 @@ function showDetail(characterId, cardCanvas) {
   if (fromDetail && switchDetail(characterId)) return;
   mount(() => buildDetailView(characterId));
 }
+
+// The Menu button has nothing to open, so it toggles a look at how the page is
+// built instead: the whole thing desaturates and every character drops its
+// texture for its raw topology.
+const menuBtn = document.querySelector(".menu-btn");
+let meshMode = false;
+menuBtn?.addEventListener("click", () => {
+  meshMode = !meshMode;
+  document.documentElement.classList.toggle("mesh-mode", meshMode);
+  menuBtn.setAttribute("aria-pressed", String(meshMode));
+  setMeshMode(meshMode);
+  // the materials are shared and the scenes only redraw on demand, so every
+  // live viewer has to be told the look changed under it
+  for (const viewer of state.viewers) viewer.render();
+});
 
 showGrid();
