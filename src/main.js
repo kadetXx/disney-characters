@@ -1628,83 +1628,63 @@ function showDetail(characterId, cardCanvas) {
 /* Turning the character with the cursor                              */
 /* ------------------------------------------------------------------ */
 
-// How far past the character's own edge the cursor still counts as over her,
-// how much of a turn the swing is worth, and the half-width the swing is
-// mapped across as a share of the canvas.
-const YAW_HOVER_PAD = 24;
+// How much of a turn the swing is worth, and how far the cursor has to travel
+// to reach the end of it, as a share of the viewport width.
 const YAW_SWING = 0.42;
-const YAW_SPAN = 0.5;
+const YAW_SPAN = 0.33;
 
-// Arming is hit-tested against the RENDERED PIXELS rather than the element.
-// The mascot canvas is a big rectangle that overlaps the rail's buttons, and
-// it carries pointer-events:none precisely so it cannot swallow them -- so it
-// never receives pointer events of its own and there is nothing to hover.
-// Reading the alpha the character actually drew gives the silhouette instead
-// of the box: she arms over herself and nowhere else, and the rail underneath
-// stays clickable.
+// The expanded character follows the cursor, with no hover needed to start it.
 //
-// Once armed she keeps following the cursor wherever it goes. Dropping the
-// follow the moment the pointer left her outline made it almost unusable --
-// she is a narrow, awkward target and any turn moves her out from under the
-// very cursor that caused it. Only navigating away resets it.
-let yawArmed = false;
+// What she follows is how far the cursor has moved from where it FIRST moved,
+// not where it sits on screen. Absolute position cannot work: the pointer is
+// wherever the last click left it when the view opens -- frequently out at the
+// rail or over the panel -- and mapping that directly would snap her hard
+// round before the cursor had moved at all. Taking the first move as neutral
+// means she starts facing front wherever the pointer happens to be, and turns
+// only in response to actual movement.
+//
+// This also replaced a hover-to-arm version that hit-tested the rendered
+// alpha to find her silhouette. None of that is needed now, and the
+// per-pointermove getImageData readback it cost goes with it.
+let yawOrigin = null;
 let yawFrame = null;
 let lastPointer = null;
 
-// called whenever the expanded character changes or the view is left
+// called whenever the expanded character changes or the view is left, so the
+// next one starts facing front and re-establishes its own neutral
 function resetYawFollow() {
-  yawArmed = false;
+  yawOrigin = null;
+  lastPointer = null;
   const canvas = document.querySelector(".detail-mascot-canvas");
   state.viewers.find((v) => v.canvas === canvas)?.setYawOffset(0);
 }
 
 function pointerYaw() {
   yawFrame = null;
+  if (lastPointer === null) return;
   const canvas = document.querySelector(".detail-mascot-canvas");
-  if (!canvas || !lastPointer) return;
+  if (!canvas) return;
   const viewer = state.viewers.find((v) => v.canvas === canvas);
   if (!viewer) return;
 
-  const box = canvas.getBoundingClientRect();
-  if (!box.width || !box.height) return;
-
-  if (!yawArmed) {
-    const inBox =
-      lastPointer.x >= box.left - YAW_HOVER_PAD &&
-      lastPointer.x <= box.right + YAW_HOVER_PAD &&
-      lastPointer.y >= box.top - YAW_HOVER_PAD &&
-      lastPointer.y <= box.bottom + YAW_HOVER_PAD;
-    if (!inBox) return;
-
-    // the character's own pixels, in the canvas's backing store
-    const px = Math.round(((lastPointer.x - box.left) / box.width) * canvas.width);
-    const py = Math.round(((lastPointer.y - box.top) / box.height) * canvas.height);
-    if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) return;
-    let over = false;
-    try {
-      over = canvas.getContext("2d").getImageData(px, py, 1, 1).data[3] > 24;
-    } catch {
-      over = false;
-    }
-    if (!over) return;
-    yawArmed = true;
+  // the first move only establishes neutral -- she does not turn for it
+  if (yawOrigin === null) {
+    yawOrigin = lastPointer;
+    viewer.setYawOffset(0);
+    return;
   }
 
-  // Where the cursor sits relative to her, as -1..1, so she turns to face it.
-  // Mapped across half the canvas rather than the whole of it: it is
-  // overscanned and she occupies only the middle band, so the full box put
-  // both ends of the swing out of reach.
-  const span = box.width * YAW_SPAN;
-  const side = Math.max(-1, Math.min(1, (lastPointer.x - (box.left + box.width / 2)) / span));
+  const span = Math.max(1, window.innerWidth * YAW_SPAN);
+  const side = Math.max(-1, Math.min(1, (lastPointer - yawOrigin) / span));
   viewer.setYawOffset(side * YAW_SWING);
 }
 
 document.addEventListener(
   "pointermove",
   (event) => {
-    lastPointer = { x: event.clientX, y: event.clientY };
-    // one hit-test per frame at most: getImageData is a GPU readback and the
-    // pointer fires far more often than the page can paint
+    lastPointer = event.clientX;
+    // one update per frame at most; the pointer fires far more often than the
+    // page can paint, and this does a DOM lookup
     if (yawFrame === null) yawFrame = requestAnimationFrame(pointerYaw);
   },
   { passive: true }
