@@ -79,6 +79,17 @@ img {
   gap: 24px;
   padding: 28px var(--nav-pad-x) 0;
   flex-shrink: 0;
+  /* Lifted above the carousel so its buttons are actually clickable. The
+     track carries ~430px of overscan padding (see .carousel-track) which puts
+     its box right across the nav, and #app comes after .nav in the document,
+     so with both unpositioned the track won hit-testing and swallowed every
+     click up here -- Menu did nothing in the grid while working fine in the
+     expanded view, where there is no carousel to cover it.
+     z-index 1, deliberately not more: the characters sit at 2 and the detail
+     view's rail, panel and mascot from 3 up, and all of them are supposed to
+     pass in FRONT of the nav. This only has to beat the unpositioned track. */
+  position: relative;
+  z-index: 1;
 }
 
 .logo {
