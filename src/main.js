@@ -201,7 +201,11 @@ function buildGridView() {
   // seconds, because their bytes had not even been asked for yet. The bytes
   // are the part that has to be in flight early; the decode is the part that
   // has to wait its turn.
-  for (const character of characters) prefetchModel(character.model);
+  for (const character of characters) {
+    // a prefetch failure must not surface as an unhandled rejection: the card
+    // that needs it will report it properly through onError when it mounts
+    prefetchModel(character.model).catch(() => {});
+  }
   viewport.appendChild(track);
   view.appendChild(viewport);
 
@@ -534,7 +538,6 @@ function mountMascot(canvas, character, onPainted) {
     yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
     rimColor: character.rimColor ?? character.gradient[0],
     spinSpeed: 0,
-    interactive: true,
     onReady: () => {
       viewer.render();
       onPainted?.();
@@ -651,7 +654,6 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
       yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
       rimColor: character.rimColor ?? character.gradient[0],
       spinSpeed: 0,
-      interactive: true,
       // onReady fires once the model is loaded and framed -- but nothing has
       // been DRAWN yet: the render loop is a separate rAF callback and would
       // not reach this viewer until the next frame. Draw synchronously here so
@@ -1618,6 +1620,91 @@ function showDetail(characterId, cardCanvas) {
   if (fromDetail && switchDetail(characterId)) return;
   mount(() => buildDetailView(characterId));
 }
+
+/* ------------------------------------------------------------------ */
+/* Turning the character with the cursor                              */
+/* ------------------------------------------------------------------ */
+
+// How far past the character's own edge the cursor still counts as over it,
+// and how much of a turn the full width of it is worth.
+const YAW_HOVER_PAD = 24;
+const YAW_SWING = 0.42;
+// half-width of the band the swing is mapped across, as a share of the canvas.
+// The character sits in roughly the middle half of its overscanned canvas.
+const YAW_SPAN = 0.25;
+
+// Hit-tested against the RENDERED PIXELS rather than the element. The mascot
+// canvas is a big rectangle that overlaps the rail's buttons, and it carries
+// pointer-events:none precisely so it cannot swallow them -- so it never
+// receives pointer events of its own and there is nothing to hover. Reading
+// the alpha the character actually drew gives the silhouette instead of the
+// box: the cursor activates it over the character and nowhere else, and the
+// rail underneath stays clickable.
+let yawFrame = null;
+let lastPointer = null;
+
+function pointerYaw() {
+  yawFrame = null;
+  const canvas = document.querySelector(".detail-mascot-canvas");
+  if (!canvas || !lastPointer) return;
+  const viewer = state.viewers.find((v) => v.canvas === canvas);
+  if (!viewer) return;
+
+  const box = canvas.getBoundingClientRect();
+  if (!box.width || !box.height) return;
+
+  const inBox =
+    lastPointer.x >= box.left - YAW_HOVER_PAD &&
+    lastPointer.x <= box.right + YAW_HOVER_PAD &&
+    lastPointer.y >= box.top - YAW_HOVER_PAD &&
+    lastPointer.y <= box.bottom + YAW_HOVER_PAD;
+  if (!inBox) {
+    viewer.setYawOffset(0);
+    return;
+  }
+
+  // the character's own pixels, in the canvas's backing store
+  const px = Math.round(((lastPointer.x - box.left) / box.width) * canvas.width);
+  const py = Math.round(((lastPointer.y - box.top) / box.height) * canvas.height);
+  let over = false;
+  if (px >= 0 && py >= 0 && px < canvas.width && py < canvas.height) {
+    try {
+      over = canvas.getContext("2d").getImageData(px, py, 1, 1).data[3] > 24;
+    } catch {
+      over = false;
+    }
+  }
+  if (!over) {
+    viewer.setYawOffset(0);
+    return;
+  }
+
+  // Which side of the character the cursor is on, as -1..1. Measured against
+  // the middle half of the canvas rather than the whole of it: the canvas is
+  // deliberately overscanned and the character only occupies roughly that
+  // middle band, so mapping across the full box meant hovering it never got
+  // anywhere near the ends of the swing.
+  const span = box.width * YAW_SPAN;
+  const side = Math.max(-1, Math.min(1, (lastPointer.x - (box.left + box.width / 2)) / span));
+  viewer.setYawOffset(side * YAW_SWING);
+}
+
+document.addEventListener(
+  "pointermove",
+  (event) => {
+    lastPointer = { x: event.clientX, y: event.clientY };
+    // one hit-test per frame at most: getImageData is a GPU readback and the
+    // pointer fires far more often than the page can paint
+    if (yawFrame === null) yawFrame = requestAnimationFrame(pointerYaw);
+  },
+  { passive: true }
+);
+
+// let go the moment the cursor leaves the window, or it keeps its last turn
+document.addEventListener("pointerleave", () => {
+  const canvas = document.querySelector(".detail-mascot-canvas");
+  state.viewers.find((v) => v.canvas === canvas)?.setYawOffset(0);
+});
 
 // The Menu button has nothing to open, so it toggles a look at how the page is
 // built instead: the whole thing desaturates and every character drops its

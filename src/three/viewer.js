@@ -119,10 +119,20 @@ function loadModel(url) {
   if (!modelCache.has(url)) {
     modelCache.set(
       url,
-      loader.loadAsync(url).then((gltf) => {
-        applyGloss(gltf.scene);
-        return gltf.scene;
-      })
+      loader
+        .loadAsync(url)
+        .then((gltf) => {
+          applyGloss(gltf.scene);
+          return gltf.scene;
+        })
+        .catch((error) => {
+          // Drop the failure out of the cache. A rejected promise left in
+          // here is permanent: every later viewer of this character -- the
+          // detail view, the flight, a second visit -- would await the same
+          // rejection with no way to try again.
+          modelCache.delete(url);
+          throw error;
+        })
     );
   }
   return modelCache.get(url);
@@ -319,7 +329,7 @@ function getStage() {
   return stage;
 }
 
-export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAnchor = 0, yaw = 0, rimColor = 0xffa93e, spinSpeed = 0.25, interactive = false, onReady }) {
+export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAnchor = 0, yaw = 0, rimColor = 0xffa93e, spinSpeed = 0.25, onReady, onError }) {
   const { environment, draw, pixelRatio } = getStage();
 
   const scene = new THREE.Scene();
@@ -421,63 +431,24 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     });
   }
 
-  let autoRotatePaused = false;
-  let resumeTimer = null;
-  let dragCleanup = null;
+  // How far the character can be turned by the cursor, and how quickly it
+  // chases the target. The cap is well short of the framing limit: the camera
+  // distance was fitted to the silhouette measured at rest, so a far enough
+  // turn presents a wider profile than was fitted for and clips at the
+  // frustum edge.
+  const YAW_LIMIT = 0.42;
+  const YAW_CHASE = 0.16;
+  let yawTarget = 0;
+  let yawCurrent = 0;
 
-  if (interactive) {
-    const ROTATE_SPEED = 0.008;
-    // capped well short of the theoretical framing limit: past this, a
-    // rotated model's silhouette can grow past what the camera fit for at
-    // rest and get clipped by the frustum edge (verified empirically per weapon)
-    const PITCH_LIMIT = 0.45;
-    const RESUME_DELAY = 1500;
-    let dragging = false;
-    let lastX = 0;
-    let lastY = 0;
-
-    const onPointerDown = (event) => {
-      dragging = true;
-      autoRotatePaused = true;
-      clearTimeout(resumeTimer);
-      lastX = event.clientX;
-      lastY = event.clientY;
-      canvas.style.cursor = "grabbing";
-      canvas.setPointerCapture(event.pointerId);
-    };
-    const onPointerMove = (event) => {
-      if (!dragging) return;
-      const dx = event.clientX - lastX;
-      const dy = event.clientY - lastY;
-      lastX = event.clientX;
-      lastY = event.clientY;
-      rig.rotation.y += dx * ROTATE_SPEED;
-      rig.rotation.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, rig.rotation.x + dy * ROTATE_SPEED));
-      invalidate();
-    };
-    const onPointerUp = (event) => {
-      if (!dragging) return;
-      dragging = false;
-      canvas.style.cursor = "grab";
-      if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-      resumeTimer = setTimeout(() => {
-        autoRotatePaused = false;
-      }, RESUME_DELAY);
-    };
-
-    canvas.style.cursor = "grab";
-    canvas.style.touchAction = "none";
-    canvas.addEventListener("pointerdown", onPointerDown);
-    canvas.addEventListener("pointermove", onPointerMove);
-    canvas.addEventListener("pointerup", onPointerUp);
-    canvas.addEventListener("pointercancel", onPointerUp);
-
-    dragCleanup = () => {
-      canvas.removeEventListener("pointerdown", onPointerDown);
-      canvas.removeEventListener("pointermove", onPointerMove);
-      canvas.removeEventListener("pointerup", onPointerUp);
-      canvas.removeEventListener("pointercancel", onPointerUp);
-    };
+  // Offset from the character's resting yaw, in radians, clamped. Driven by
+  // the cursor rather than by a drag -- see the hover handling in main.js,
+  // which decides whether the pointer is actually over the character.
+  function setYawOffset(offset) {
+    yawTarget = Math.max(-YAW_LIMIT, Math.min(YAW_LIMIT, offset));
+    // the scenes are static and only redraw on demand, so the chase in tick()
+    // has to be woken up or it will never run
+    if (Math.abs(yawTarget - yawCurrent) > 0.0005) invalidate();
   }
 
   // the CSS size this viewer occupies on screen -- drives both the camera
@@ -536,7 +507,17 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   });
   resizeObserver.observe(canvas);
 
-  setModel(modelUrl).then(() => onReady?.());
+  // onReady fires only on success. It is what the flight waits on before
+  // handing the character over, so resolving it after a failed load would
+  // hand the transition a permanently blank canvas.
+  setModel(modelUrl).then(
+    () => onReady?.(),
+    (error) => {
+      if (disposed) return;
+      console.error(`[viewer] could not load ${modelUrl}`, error);
+      onError?.(error);
+    }
+  );
 
   // Draws now rather than waiting for the loop's next frame. The flight needs
   // this: gsap's ticker and the render loop are separate rAF callbacks, so
@@ -549,8 +530,15 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   function tick(deltaSeconds) {
     if (disposed) return;
-    if (spinSpeed && !autoRotatePaused) {
+    if (spinSpeed) {
       rig.rotation.y += deltaSeconds * spinSpeed;
+      needsRender = true;
+    }
+    // eased rather than set outright, so the turn follows the cursor with some
+    // weight instead of snapping to it, and settles back when the cursor leaves
+    if (Math.abs(yawTarget - yawCurrent) > 0.0005) {
+      yawCurrent += (yawTarget - yawCurrent) * YAW_CHASE;
+      rig.rotation.y = yawCurrent;
       needsRender = true;
     }
     if (!needsRender) return;
@@ -559,8 +547,6 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   function dispose() {
     disposed = true;
-    clearTimeout(resumeTimer);
-    dragCleanup?.();
     resizeObserver.disconnect();
     // Nothing GPU-side to tear down: the context, its uploaded textures and
     // the environment map are the shared stage's and outlive this viewer --
@@ -575,7 +561,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   resize();
 
-  return { tick, render, dispose, setModel, setFraming, setProjectedFraming, setSize, canvas };
+  return { tick, render, dispose, setModel, setFraming, setProjectedFraming, setSize, setYawOffset, canvas };
 }
 
 export function createRenderLoop() {
