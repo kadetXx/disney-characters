@@ -576,14 +576,23 @@ img {
 
 .detail-badge {
   position: relative;
+  /* the footprint the four circles occupied, kept so swapping them for a logo
+     did not move the text beside it */
   width: 150px;
   height: 130px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
-.detail-badge span {
-  position: absolute;
-  border-radius: 100%;
+.movie-logo {
+  max-width: 100%;
+  max-height: 100%;
+  /* contain, never cover: a logo cropped is a logo ruined, and these arrive at
+     whatever aspect the film's mark happens to be */
+  object-fit: contain;
+  object-position: right center;
 }
 
 .detail-clips {
@@ -615,6 +624,20 @@ img {
      cut off at the panel edge -- the intended "there's more, scroll" hint */
   margin-right: calc(-1 * clamp(28px, 5vw, 64px));
   padding-right: clamp(28px, 5vw, 64px);
+  /* ...and the same on the left, but wide enough for a whole card, so one
+     scrolling out that way is not sliced off at the track's edge. A scroll
+     container always clips -- there is no overflow-x:auto with visible
+     overflow -- so the scrollport is extended leftward with padding and
+     pulled back into place with a matching negative margin, which is the
+     trick .carousel-track already uses for its vertical overscan. The card
+     ends up drawn over the space the character occupies, which is fine: it
+     only happens while the row is being scrolled.
+     scroll-padding-left keeps snapping aligned to where the cards actually
+     sit, rather than treating the leading padding as somewhere to snap to. */
+  --clips-overscan: clamp(170px, 17vw, 360px);
+  margin-left: calc(-1 * var(--clips-overscan));
+  padding-left: var(--clips-overscan);
+  scroll-padding-left: var(--clips-overscan);
 }
 
 .clips-track::-webkit-scrollbar {
@@ -774,4 +797,39 @@ html.mesh-mode body::after {
   pointer-events: none;
   -webkit-backdrop-filter: grayscale(1);
   backdrop-filter: grayscale(1);
+}
+
+/* Clip posters. The video only loads when one is asked for (preload=none), so
+   this is what is actually seen until then -- and what is fallen back to if a
+   clip refuses to play. */
+.clip-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* knocked back like the video was, so the play button stays legible over it */
+  opacity: 0.65;
+  transition: opacity 200ms ease;
+}
+
+.clip-card.is-playing .clip-poster {
+  opacity: 0;
+}
+
+/* hidden until played, so a black rectangle never shows through the poster */
+.clip-card .clip-video {
+  opacity: 0;
+}
+
+.clip-card.is-playing .clip-video {
+  opacity: 1;
+}
+
+.clip-card.is-playing .clip-play {
+  opacity: 0;
+}
+
+.clip-play {
+  transition: opacity 200ms ease;
 }

@@ -1,5 +1,5 @@
 import gsap from "gsap";
-import { characters, getCharacter, defaultCharacterId } from "./data/characters.js";
+import { characters, getCharacter, getMovie, defaultCharacterId } from "./data/characters.js";
 import { createViewer, createRenderLoop, prefetchModel, setMeshMode } from "./three/viewer.js";
 
 // the Google Fonts link is preloaded (not render-blocking) in the HTML head --
@@ -484,17 +484,23 @@ function rgba(hex, a) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-const BADGE_COLORS = ["#7B4FA0", "#C97B2E", "#3FA6A0", "#D6C232"];
-
-function buildBadge() {
+// The movie's logo, sitting where the four decorative circles used to. Kept at
+// the same footprint so the info row's layout is unchanged, and contained
+// rather than cropped so a real logo of any sensible aspect drops straight in
+// without being cut.
+//
+// The four-circle version this replaced is parked, with its placeholder art, at
+// ~/Desktop/disney-characters-parked/four-circle-badge -- the idea of putting
+// four different images in four circles is still open, it just is not this.
+function buildBadge(character) {
   const badge = document.createElement("div");
   badge.className = "detail-badge";
-  badge.innerHTML = `
-    <span style="top:0;left:20px;width:70px;height:70px;background:${BADGE_COLORS[0]}"></span>
-    <span style="top:18px;left:60px;width:60px;height:60px;background:${BADGE_COLORS[1]}"></span>
-    <span style="bottom:0;left:8px;width:64px;height:64px;background:${BADGE_COLORS[2]}"></span>
-    <span style="bottom:6px;right:0;width:56px;height:56px;background:${BADGE_COLORS[3]}"></span>
-  `;
+  const logo = document.createElement("img");
+  logo.className = "movie-logo";
+  logo.src = getMovie(character.movie).logo;
+  // decorative: the movie is already named in the text beside it
+  logo.alt = "";
+  badge.appendChild(logo);
   return badge;
 }
 
@@ -510,7 +516,7 @@ function buildDetailInfo(character) {
       <p class="detail-description">${character.description}</p>
     </div>
   `;
-  info.appendChild(buildBadge());
+  info.appendChild(buildBadge(character));
   return info;
 }
 
@@ -548,7 +554,7 @@ function mountMascot(canvas, character, onPainted) {
   return viewer;
 }
 
-function buildClips() {
+function buildClips(character) {
   const clips = document.createElement("div");
   clips.className = "detail-clips";
   const label = document.createElement("span");
@@ -558,20 +564,43 @@ function buildClips() {
 
   const track = document.createElement("div");
   track.className = "clips-track";
-  for (let i = 0; i < 3; i++) {
-    const card = document.createElement("div");
+
+  getMovie(character.movie).clips.forEach((clip, i) => {
+    const card = document.createElement("button");
     card.className = "clip-card";
-    // one shared placeholder file behind all three; muted+playsinline so it
-    // autoplays under browser policy, and preload=auto since it is reused
+    card.type = "button";
+    card.setAttribute("aria-label", `Play ${character.movie} clip ${i + 1}`);
+    // preload none: three videos per character, six characters, and most are
+    // never played. The poster is what gets seen until one is asked for.
     card.innerHTML = `
-      <video class="clip-video" src="${import.meta.env.BASE_URL}clip-placeholder.mp4"
-             autoplay loop muted playsinline preload="auto" aria-hidden="true"></video>
-      <div class="clip-play">
+      <img class="clip-poster" src="${clip.poster}" alt="">
+      <video class="clip-video" src="${clip.src}" loop playsinline preload="none"></video>
+      <span class="clip-play">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M10 8.5L16 12L10 15.5V8.5Z" fill="#243A74"/></svg>
-      </div>
+      </span>
     `;
+    const video = card.querySelector(".clip-video");
+    card.addEventListener("click", () => {
+      const playing = card.classList.contains("is-playing");
+      // only ever one at a time, so clicking a second does not leave the
+      // first running behind it
+      for (const other of track.querySelectorAll(".clip-card.is-playing")) {
+        other.classList.remove("is-playing");
+        other.querySelector(".clip-video")?.pause();
+      }
+      if (playing) return;
+      card.classList.add("is-playing");
+      // a click is a user gesture, so this is allowed to have sound
+      video.muted = false;
+      video.play().catch(() => {
+        // autoplay policy, a missing file, an unsupported codec -- fall back
+        // to the poster rather than leaving a dead black rectangle
+        card.classList.remove("is-playing");
+      });
+    });
     track.appendChild(card);
-  }
+  });
+
   clips.appendChild(track);
   return clips;
 }
@@ -632,7 +661,7 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
 
 
   panel.appendChild(buildDetailInfo(character));
-  panel.appendChild(buildClips());
+  panel.appendChild(buildClips(character));
 
   body.appendChild(panel);
 
@@ -1008,7 +1037,7 @@ function switchDetail(characterId) {
   }
 
   const newInfo = buildDetailInfo(character);
-  const newClips = buildClips();
+  const newClips = buildClips(character);
   newInfo.classList.add("switch-pane");
   newClips.classList.add("switch-pane");
   panel.appendChild(newInfo);

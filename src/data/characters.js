@@ -20,6 +20,42 @@ const MODEL_BASE = import.meta.env.BASE_URL + "models/";
 //   diagonal poses (Rosetta's flying pose) need a bigger drop to dip into
 //   the panel the way the reference does; upright poses mostly just need
 //   their feet to kiss the panel's top edge.
+const MOVIE_BASE = import.meta.env.BASE_URL + "movies/";
+
+// Artwork is keyed by MOVIE, not by character: Sadness and Disgust are both
+// Inside Out, and should share one rather than carrying duplicates.
+//
+// Everything here is a placeholder, sized and shaped for the slot it fills --
+// `logo` wide and transparent, `clips` 16:9. Dropping in the real thing is a
+// matter of replacing the file at the same path, or pointing these at new
+// ones; nothing else has to change. `clips[].src` is the video that plays on
+// click, and is the shared placeholder until there are real ones.
+const PLACEHOLDER_CLIP = import.meta.env.BASE_URL + "clip-placeholder.mp4";
+
+function movieAssets(slug) {
+  return {
+    // one logo per movie. Wider than tall, transparent, and drawn in a light
+    // ink because the panel behind it is always a dark gradient.
+    logo: `${MOVIE_BASE}${slug}-logo.svg`,
+    clips: [1, 2, 3].map((n) => ({
+      poster: `${MOVIE_BASE}${slug}-clip-${n}.svg`,
+      src: PLACEHOLDER_CLIP,
+    })),
+  };
+}
+
+export const movies = {
+  "Tinkerbell": movieAssets("tinkerbell"),
+  "Inside Out": movieAssets("inside-out"),
+  "Zootopia": movieAssets("zootopia"),
+  "Moana": movieAssets("moana"),
+  "Wreck-It Ralph": movieAssets("wreck-it-ralph"),
+};
+
+export function getMovie(title) {
+  return movies[title] ?? movieAssets("inside-out");
+}
+
 export const characters = [
   {
     id: "rosetta",
