@@ -986,8 +986,13 @@ function switchDetail(characterId) {
   // change its layout algorithm mid-transition and shift the contents; this
   // leaves the panel a flex column throughout, which is what it is built as.
   const panelRect = panel.getBoundingClientRect();
-  for (const el of [oldInfo, oldClips]) {
-    const r = el.getBoundingClientRect();
+  // Every box is measured BEFORE any of them is moved. Pinning one at a time
+  // does not work: the panel is a flex column with justify-content
+  // space-between, so the instant the copy goes position:absolute the clip row
+  // is the only child left in flow and jumps to the top -- and that is then
+  // the position it gets pinned at, so it flew up before dropping away.
+  const pinned = [oldInfo, oldClips].map((el) => ({ el, r: el.getBoundingClientRect() }));
+  for (const { el, r } of pinned) {
     Object.assign(el.style, {
       position: "absolute",
       left: `${r.left - panelRect.left}px`,
