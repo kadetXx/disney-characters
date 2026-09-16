@@ -494,6 +494,57 @@ function buildBadge() {
   return badge;
 }
 
+// Split out of buildDetailView so switching characters can rebuild just this
+// block and cross-fade it, instead of rebuilding the whole view.
+function buildDetailInfo(character) {
+  const info = document.createElement("div");
+  info.className = "detail-info";
+  info.innerHTML = `
+    <div class="detail-text">
+      <h2 class="detail-title" style="color:${character.titleTint}">${character.name}</h2>
+      <p class="detail-movie">Movie <b>${character.movie}</b></p>
+      <p class="detail-description">${character.description}</p>
+    </div>
+  `;
+  info.appendChild(buildBadge());
+  return info;
+}
+
+// The character's canvas, and the viewer that draws into it. Also split out so
+// a switch can build a second one and slide it in over the first.
+function buildMascotCanvas(character) {
+  const canvas = document.createElement("canvas");
+  canvas.className = "detail-mascot-canvas";
+  canvas.setAttribute("aria-hidden", "true");
+  canvas.style.setProperty("--detail-shift-x", `${character.detailShiftX ?? 0}%`);
+  canvas.style.setProperty("--detail-shift-y", `${character.detailShiftY ?? 0}%`);
+  // same accent halo the cards carry, so the character doesn't arrive here
+  // permanently stripped of it. Affordable on this canvas and not on the
+  // flight's precisely because this one is static -- the blur rasterises once
+  // and is cached, rather than being redone every frame.
+  canvas.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
+  canvas.style.setProperty("--aura-size", AURA.blur);
+  return canvas;
+}
+
+function mountMascot(canvas, character, onPainted) {
+  const viewer = createViewer(canvas, {
+    modelUrl: character.model,
+    ...detailFraming(character),
+    yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
+    rimColor: character.rimColor ?? character.gradient[0],
+    spinSpeed: 0,
+    interactive: true,
+    onReady: () => {
+      viewer.render();
+      onPainted?.();
+    },
+  });
+  renderLoop.add(viewer);
+  state.viewers.push(viewer);
+  return viewer;
+}
+
 function buildClips() {
   const clips = document.createElement("div");
   clips.className = "detail-clips";
@@ -577,32 +628,12 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
   panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
 
 
-  const info = document.createElement("div");
-  info.className = "detail-info";
-  info.innerHTML = `
-    <div class="detail-text">
-      <h2 class="detail-title" style="color:${character.titleTint}">${character.name}</h2>
-      <p class="detail-movie">Movie <b>${character.movie}</b></p>
-      <p class="detail-description">${character.description}</p>
-    </div>
-  `;
-  info.appendChild(buildBadge());
-  panel.appendChild(info);
+  panel.appendChild(buildDetailInfo(character));
   panel.appendChild(buildClips());
 
   body.appendChild(panel);
 
-  const canvas = document.createElement("canvas");
-  canvas.className = "detail-mascot-canvas";
-  canvas.setAttribute("aria-hidden", "true");
-  canvas.style.setProperty("--detail-shift-x", `${character.detailShiftX ?? 0}%`);
-  canvas.style.setProperty("--detail-shift-y", `${character.detailShiftY ?? 0}%`);
-  // same accent halo the cards carry, so the character doesn't arrive here
-  // permanently stripped of it. Affordable on this canvas and not on the
-  // flight's precisely because this one is static -- the blur rasterises once
-  // and is cached, rather than being redone every frame.
-  canvas.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
-  canvas.style.setProperty("--aura-size", AURA.blur);
+  const canvas = buildMascotCanvas(character);
   body.appendChild(canvas);
 
   view.appendChild(body);
@@ -668,12 +699,15 @@ function mount(buildFn, { fade = true } = {}) {
   return view;
 }
 
-// How long the other cards take to arrive behind the shrinking panel, and how
-// far into the flight they start. They are not reversing their exit -- they
-// simply turn up, which is what makes the shrinking character the only thing
-// the eye has to follow.
-const CARD_RETURN_SECONDS = 0.34;
-const CARD_RETURN_DELAY = 0.22;
+// When the grid arrives behind the shrinking panel, as a share of the flight.
+// Late on purpose: the shrinking panel does not cover the destination card for
+// most of the move -- at the halfway point its left edge is still well right of
+// a card sitting at the start of the row -- so bringing the grid in early let
+// you see the card being flown into before the flight got there. The cards now
+// land just as the panel does, and the character is the only thing to follow
+// until then.
+const CARD_RETURN_SECONDS = 0.3;
+const CARD_RETURN_DELAY = 0.55;
 // the detail panel's own text goes early, while the box is still near full
 // size; below about this the layout it was written for no longer fits
 const DETAIL_TEXT_FADE = 0.28;
@@ -785,21 +819,22 @@ function flyToGrid(characterId) {
     whenCardReady?.();
   });
 
-  // The other cards simply arrive. They are behind the panel for most of the
-  // flight anyway, so there is nothing to reverse.
-  const others = view.otherCards(characterId);
-  if (others.length) {
-    gsap.fromTo(
-      others,
-      { opacity: 0 },
-      {
-        opacity: 1,
-        duration: CARD_RETURN_SECONDS,
-        ease: "power2.out",
-        delay: FLIGHT_SECONDS * CARD_RETURN_DELAY,
-      }
-    );
-  }
+  // The cards simply arrive -- they are not reversing their exit. The card
+  // being flown into is faded with the rest rather than left standing: it is
+  // the one the eye is heading towards, so seeing it sitting there waiting is
+  // what gave away the ending. It has to be fully opaque before the flying
+  // panel is removed at the landing, which the window below guarantees.
+  const arriving = [...view.otherCards(characterId), target.card];
+  gsap.fromTo(
+    arriving,
+    { opacity: 0 },
+    {
+      opacity: 1,
+      duration: FLIGHT_SECONDS * CARD_RETURN_SECONDS,
+      ease: "power2.out",
+      delay: FLIGHT_SECONDS * CARD_RETURN_DELAY,
+    }
+  );
 
   if (detailPanel && panelFrom) {
     const panelTo = target.panel.getBoundingClientRect();
@@ -883,6 +918,168 @@ function flyToGrid(characterId) {
       else whenCardReady = land;
     },
   });
+
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* Switching between expanded characters                              */
+/* ------------------------------------------------------------------ */
+
+const SWITCH_SECONDS = 0.55;
+// matches select-weapon's fadeScaleReplace: 240ms, scale 0.95, origin left
+const SWITCH_TEXT_SECONDS = 0.24;
+const SWITCH_TEXT_SCALE = 0.95;
+// how far the clip row drops as it leaves, and arrives from
+const SWITCH_CLIPS_DROP = 44;
+// how far each model travels, as a share of its own height. The outgoing one
+// goes DOWN and the incoming arrives from above, so the swap runs the same way
+// the rail's chevron points.
+const SWITCH_MODEL_TRAVEL = 0.5;
+
+// Snaps an in-flight switch to its finished state. Set while one is running so
+// the next one can land cleanly on top of it.
+let endActiveSwitch = null;
+
+// Moves between two expanded characters without moving the expanded slide
+// itself. The panel stays exactly where it is and only its contents change:
+// its colour washes over to the next character's, the copy cross-fades, the
+// clip row drops away and the model is swapped top to bottom, following the
+// chevron. Nothing relayouts and the page never slides.
+function switchDetail(characterId) {
+  // a second click while the first swap is still running would otherwise leave
+  // two outgoing copies of everything behind
+  endActiveSwitch?.();
+
+  const view = app.firstElementChild;
+  if (!view?.classList.contains("detail-view")) return false;
+  const body = view.querySelector(".detail-body");
+  const panel = view.querySelector(".detail-panel");
+  const oldCanvas = view.querySelector(".detail-mascot-canvas");
+  const oldInfo = view.querySelector(".detail-info");
+  const oldClips = view.querySelector(".detail-clips");
+  const rail = view.querySelector(".detail-rail");
+  if (!body || !panel || !oldCanvas || !oldInfo || !oldClips || !rail) return false;
+
+  const character = getCharacter(characterId);
+  const index = characters.findIndex((c) => c.id === characterId);
+  const nextCharacter = characters[(index + 1) % characters.length];
+
+  // Freeze the outgoing character. Disposing its viewer stops it rendering but
+  // leaves its canvas holding the last frame, so only the arriving model
+  // actually draws while both are on screen.
+  clearViewers();
+
+  // --- the panel's colour ------------------------------------------------
+  // A gradient cannot be tweened, so the next character's is laid over the
+  // panel and faded up, then adopted as the panel's own. border-radius is
+  // inherited so it follows the panel's corner exactly.
+  const wash = document.createElement("div");
+  wash.className = "panel-wash";
+  wash.style.background = gradientCss(character);
+  panel.insertBefore(wash, panel.firstChild);
+
+  // --- the copy and the clip row ----------------------------------------
+  // The outgoing pair are pinned to the boxes they already occupy and taken
+  // out of flow, so the incoming pair lay out in exactly the slots they just
+  // vacated. Switching the panel to a grid to overlap them instead would
+  // change its layout algorithm mid-transition and shift the contents; this
+  // leaves the panel a flex column throughout, which is what it is built as.
+  const panelRect = panel.getBoundingClientRect();
+  for (const el of [oldInfo, oldClips]) {
+    const r = el.getBoundingClientRect();
+    Object.assign(el.style, {
+      position: "absolute",
+      left: `${r.left - panelRect.left}px`,
+      top: `${r.top - panelRect.top}px`,
+      width: `${r.width}px`,
+      height: `${r.height}px`,
+      margin: "0",
+      pointerEvents: "none",
+    });
+    el.classList.add("switch-pane");
+  }
+
+  const newInfo = buildDetailInfo(character);
+  const newClips = buildClips();
+  newInfo.classList.add("switch-pane");
+  newClips.classList.add("switch-pane");
+  panel.appendChild(newInfo);
+  panel.appendChild(newClips);
+
+  // --- the model ---------------------------------------------------------
+  const newCanvas = buildMascotCanvas(character);
+  body.appendChild(newCanvas);
+  mountMascot(newCanvas, character, null);
+
+  const travel = oldCanvas.getBoundingClientRect().height * SWITCH_MODEL_TRAVEL;
+
+  const tl = gsap.timeline();
+  tl.to(wash, { opacity: 1, duration: SWITCH_SECONDS * 0.7, ease: "power2.inOut" }, 0);
+
+  // copy and clips cross-fade on select-weapon's curve
+  tl.to(oldInfo, { opacity: 0, scale: SWITCH_TEXT_SCALE, duration: SWITCH_TEXT_SECONDS, ease: "power2.in" }, 0);
+  tl.fromTo(
+    newInfo,
+    { opacity: 0, scale: SWITCH_TEXT_SCALE },
+    { opacity: 1, scale: 1, duration: SWITCH_TEXT_SECONDS, ease: "power2.out" },
+    SWITCH_TEXT_SECONDS * 0.8
+  );
+
+  tl.to(oldClips, { opacity: 0, y: SWITCH_CLIPS_DROP, duration: SWITCH_TEXT_SECONDS, ease: "power2.in" }, 0);
+  // in from ABOVE, not back up from below: the whole swap runs one way down
+  // the screen, the same way the chevron points, so the clip row arriving has
+  // to travel with the model rather than against it
+  tl.fromTo(
+    newClips,
+    { opacity: 0, y: -SWITCH_CLIPS_DROP },
+    { opacity: 1, y: 0, duration: SWITCH_TEXT_SECONDS * 1.3, ease: "power2.out" },
+    SWITCH_TEXT_SECONDS * 0.8
+  );
+
+  // the swap that follows the chevron: this one out of the bottom, the next in
+  // from the top
+  tl.to(oldCanvas, { y: travel, opacity: 0, duration: SWITCH_SECONDS * 0.6, ease: "power2.in" }, 0);
+  tl.fromTo(
+    newCanvas,
+    { y: -travel, opacity: 0 },
+    { y: 0, opacity: 1, duration: SWITCH_SECONDS * 0.7, ease: "power3.out" },
+    SWITCH_SECONDS * 0.22
+  );
+
+  // --- the rail ----------------------------------------------------------
+  rail.innerHTML = `
+    <span class="rail-tab is-active">${character.name}</span>
+    <div class="rail-next-group">
+      <button class="rail-tab" type="button">${nextCharacter.name}</button>
+      <button class="rail-chevron" type="button" aria-label="Next character">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  `;
+  const goNext = () => showDetail(nextCharacter.id);
+  rail.querySelector(".rail-tab:not(.is-active)").addEventListener("click", goNext);
+  rail.querySelector(".rail-chevron").addEventListener("click", goNext);
+  tl.fromTo(rail, { opacity: 0 }, { opacity: 1, duration: SWITCH_TEXT_SECONDS, ease: "power2.out" }, 0);
+
+  const finish = () => {
+    if (endActiveSwitch !== finish) return;
+    endActiveSwitch = null;
+    tl.kill();
+    // the wash becomes the panel's own background, and every outgoing piece goes
+    panel.style.background = gradientCss(character);
+    panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
+    wash.remove();
+    oldInfo.remove();
+    oldClips.remove();
+    oldCanvas.remove();
+    for (const el of [newInfo, newClips, newCanvas]) {
+      el.classList.remove("switch-pane");
+      gsap.set(el, { clearProps: "opacity,transform" });
+    }
+  };
+  endActiveSwitch = finish;
+  tl.eventCallback("onComplete", finish);
 
   return true;
 }
@@ -1401,12 +1598,14 @@ function flyToDetail(character, cardCanvas) {
 
 function showDetail(characterId, cardCanvas) {
   const character = getCharacter(characterId);
+  const fromDetail = state.view === "detail";
   state.view = "detail";
   state.detailId = characterId;
-  // falls back to the plain mount when there is nothing to fly from (the
-  // rail's next-character link), so the flight is an enhancement, never a
-  // dependency
+  // Three ways in, each falling through to the next so every transition is an
+  // enhancement rather than a dependency: flying from a card, sliding between
+  // two expanded characters, or a plain mount.
   if (cardCanvas && flyToDetail(character, cardCanvas)) return;
+  if (fromDetail && switchDetail(characterId)) return;
   mount(() => buildDetailView(characterId));
 }
 

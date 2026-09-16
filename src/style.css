@@ -716,3 +716,29 @@ img {
     display: none;
   }
 }
+
+/* ---------------------------------------------------------------- */
+/* Switching between expanded characters                            */
+/* ---------------------------------------------------------------- */
+
+/* The next character's gradient, laid over the panel and faded up so the
+   colour can cross over instead of switching in one frame. A gradient is not
+   an interpolable value, so there is nothing to tween directly. Inherits the
+   panel's radius so it follows that big top-left sweep exactly. */
+.panel-wash {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* The outgoing copy and clip row are pinned out of flow by switchDetail while
+   they cross, so the incoming pair lay out in the slots they vacated and the
+   panel stays the flex column it is built as. */
+
+/* matches select-weapon's fadeScaleReplace, which this is a port of */
+.switch-pane {
+  transform-origin: left center;
+}
