@@ -86,6 +86,15 @@ function applyGloss(root) {
   });
 }
 
+// Starts (and caches) a model's fetch without building a viewer for it. The
+// two costs are separate: this one is the download, shared by every viewer of
+// that character and paid once; creating a viewer then costs a Box3 over three
+// million vertices plus the GPU upload, and that is the part worth deferring
+// for a card nobody can see yet.
+export function prefetchModel(url) {
+  return loadModel(url);
+}
+
 function loadModel(url) {
   if (!modelCache.has(url)) {
     modelCache.set(

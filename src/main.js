@@ -1,6 +1,6 @@
 import gsap from "gsap";
 import { characters, getCharacter, defaultCharacterId } from "./data/characters.js";
-import { createViewer, createRenderLoop } from "./three/viewer.js";
+import { createViewer, createRenderLoop, prefetchModel } from "./three/viewer.js";
 
 // the Google Fonts link is preloaded (not render-blocking) in the HTML head --
 // promote it to an active stylesheet once the module script runs
@@ -14,6 +14,11 @@ const app = document.getElementById("app");
 // can be inspected at exact progress values instead of hoping a screenshot
 // lands mid-tween on a machine rendering at a few frames a second
 if (import.meta.env.DEV) window.__gsap = gsap;
+
+// Longest the off-screen models will wait on the visible ones before being
+// fetched anyway. Only reached if a visible model never resolves at all --
+// otherwise the prefetch starts the moment the last visible card has drawn.
+const PREFETCH_FALLBACK_MS = 8000;
 
 const CARD_DISTANCE_SCALE = 2.05;
 const MASCOT_DISTANCE_SCALE = 1.02;
@@ -137,17 +142,33 @@ function buildCharacterCard(character) {
 
   card.addEventListener("click", () => showDetail(character.id, canvas));
 
-  const viewer = createViewer(canvas, {
-    modelUrl: character.model,
-    ...cardFraming(character),
-    yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
-    rimColor: character.rimColor ?? character.gradient[0],
-    spinSpeed: 0,
-  });
-  renderLoop.add(viewer);
-  state.viewers.push(viewer);
+  // The viewer is NOT created here. Each character's model is 15-27MB of
+  // geometry, and building all six up front meant the whole 112MB had to
+  // arrive before the first card could draw. mount() is called by
+  // buildGridView: immediately for the cards on screen, then in the
+  // background for the rest. Idempotent, so the scroll handler and the
+  // prefetch can both reach for it without coordinating.
+  let viewer = null;
+  // returns true only on the call that actually creates the viewer, so a
+  // caller can count how many mounts it is waiting on
+  const mount = (onReady) => {
+    // a deferred mount can outlive its grid -- if the view has been torn
+    // down, the canvas is detached and there is nothing to draw into
+    if (viewer || !canvas.isConnected) return false;
+    viewer = createViewer(canvas, {
+      modelUrl: character.model,
+      ...cardFraming(character),
+      yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
+      rimColor: character.rimColor ?? character.gradient[0],
+      spinSpeed: 0,
+      onReady,
+    });
+    renderLoop.add(viewer);
+    state.viewers.push(viewer);
+    return true;
+  };
 
-  return card;
+  return { card, mount };
 }
 
 function buildGridView() {
@@ -158,7 +179,20 @@ function buildGridView() {
   viewport.className = "carousel-viewport";
   const track = document.createElement("div");
   track.className = "carousel-track";
-  characters.forEach((character) => track.appendChild(buildCharacterCard(character)));
+  const mounts = characters.map((character) => {
+    const { card, mount } = buildCharacterCard(character);
+    track.appendChild(card);
+    return { card, mount };
+  });
+
+  // Every model starts downloading now, on-screen or not. Only the per-viewer
+  // work is deferred (see mountNearby). Deferring the fetch as well was a
+  // mistake: on a throttled 20Mbit connection, paging to the second screenful
+  // the moment the first had drawn left those two cards blank for eleven
+  // seconds, because their bytes had not even been asked for yet. The bytes
+  // are the part that has to be in flight early; the decode is the part that
+  // has to wait its turn.
+  for (const character of characters) prefetchModel(character.model);
   viewport.appendChild(track);
   view.appendChild(viewport);
 
@@ -325,11 +359,67 @@ function buildGridView() {
     nextBtn.disabled = page === pageOffsets().length - 1;
   }
 
+  // Everything not already mounted, fetched in the background. This is what
+  // keeps deferral from ever showing an empty card: the off-screen models are
+  // on their way while the user is still looking at the first page, not when
+  // they ask for the second. One at a time, so several multi-megabyte decodes
+  // cannot pile onto each other.
+  let prefetching = false;
+  function prefetchRest(index = 0) {
+    if (index >= mounts.length) return;
+    const { card, mount } = mounts[index];
+    if (!card.isConnected) return; // grid torn down; stop walking
+    const next = () => prefetchRest(index + 1);
+    // wait for each one to finish before starting the following one
+    if (!mount(next)) next();
+  }
+  function startPrefetch() {
+    if (prefetching) return;
+    prefetching = true;
+    prefetchRest();
+  }
+
+  // Cards whose model should already be in hand: anything on screen, plus half
+  // a screen of runway either side, so a card is never mounted at the exact
+  // moment it becomes visible.
+  //
+  // The prefetch deliberately waits until these have actually DRAWN rather
+  // than merely been asked for. The models are 15-27MB of geometry each and
+  // the cost is meshopt decode and GPU upload, not download -- measured, every
+  // file had arrived by 4.3s but nothing was on screen until 12.8s. Starting
+  // all six decoding at once simply made the visible ones queue behind the
+  // ones nobody can see.
+  let waitingOn = 0;
+  function mountNearby() {
+    // half a card of runway. Measured against the card, not the scrollport:
+    // half a viewport is wider than the entire overflow here, so it swept in
+    // all six and the deferral did nothing at all.
+    const pad = (mounts[0]?.card.offsetWidth ?? 0) * 0.5;
+    for (const { card, mount } of mounts) {
+      const r = card.getBoundingClientRect();
+      if (r.right <= -pad || r.left >= window.innerWidth + pad) continue;
+      if (mount(() => { if (--waitingOn <= 0) startPrefetch(); })) waitingOn++;
+    }
+  }
+
   prevBtn.addEventListener("click", () => step(-1));
   nextBtn.addEventListener("click", () => step(1));
-  track.addEventListener("scroll", () => { syncPagerState(); queueEdgeScale(); }, { passive: true });
+  track.addEventListener(
+    "scroll",
+    () => { syncPagerState(); queueEdgeScale(); mountNearby(); },
+    { passive: true }
+  );
   window.addEventListener("resize", queueEdgeScale, { passive: true });
-  requestAnimationFrame(() => { syncPagerState(); syncEdgeScale(); });
+  requestAnimationFrame(() => {
+    syncPagerState();
+    syncEdgeScale();
+    // on-screen cards first, so the first paint waits only on those; the rest
+    // follow via startPrefetch once these have drawn
+    mountNearby();
+    // belt and braces: if a visible model never resolves, the off-screen ones
+    // must still get fetched rather than waiting on it forever
+    setTimeout(startPrefetch, PREFETCH_FALLBACK_MS);
+  });
 
   return view;
 }
