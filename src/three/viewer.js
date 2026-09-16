@@ -56,57 +56,8 @@ const GLOSS = LOOK;
 // pass runs on the cached source scene), so this is one set for the whole app.
 const characterMaterials = new Set();
 
-// Roughly how many grid lines span a character's height, and how dark they
-// draw. The net is DRAWN rather than taken from the topology: these models
-// carry about three million triangles each, so material.wireframe renders
-// edges far smaller than a pixel -- the result is a flat pale shape with a
-// faint speckle, not a mesh, and it costs three line segments per triangle to
-// get there. A grid in object space reads as a net at any triangle count and
-// is free.
-const MESH_LINES = 42;
-const MESH_LINE_DARKNESS = 0.82;
-
-// Wires the grid into a material's shader once, gated on a uniform so turning
-// the mode on and off never recompiles. uGrid is per character, set from the
-// model's measured height so every character gets the same density on screen
-// regardless of the scale it was authored at.
-function withMeshGrid(material) {
-  material.userData.mesh = { uMesh: { value: 0 }, uGrid: { value: 1 } };
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uMesh = material.userData.mesh.uMesh;
-    shader.uniforms.uGrid = material.userData.mesh.uGrid;
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vMeshPos;")
-      .replace(
-        "#include <begin_vertex>",
-        "#include <begin_vertex>\n\tvMeshPos = transformed;"
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        "#include <common>",
-        "#include <common>\nvarying vec3 vMeshPos;\nuniform float uMesh;\nuniform float uGrid;"
-      )
-      .replace(
-        "#include <dithering_fragment>",
-        `#include <dithering_fragment>
-        if (uMesh > 0.5) {
-          vec3 g = vMeshPos * uGrid;
-          vec3 d = abs(fract(g) - 0.5);
-          vec3 w = fwidth(g);
-          // distance to the nearest grid plane on each axis, in pixels, so the
-          // line keeps a constant weight however near or far the surface is
-          vec3 edge = d / max(w, vec3(1e-5));
-          float line = 1.0 - smoothstep(0.5, 1.5, min(min(edge.x, edge.y), edge.z));
-          gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.08), line * ${MESH_LINE_DARKNESS});
-        }`
-      );
-  };
-  return material;
-}
-
-// Strips the texture and draws the grid over the bare form. `map` is put back
-// rather than rebuilt, so nothing is reloaded on the way out, and the toggle
-// is a uniform so no shader is recompiled either.
+// Strips the texture and leaves the bare form. `map` is stashed and put back
+// rather than rebuilt, so nothing is reloaded on the way out.
 export function setMeshMode(on) {
   for (const m of characterMaterials) {
     if (on) {
@@ -115,20 +66,8 @@ export function setMeshMode(on) {
     } else if (m.userData.texturedMap !== undefined) {
       m.map = m.userData.texturedMap;
     }
-    if (m.userData.mesh) m.userData.mesh.uMesh.value = on ? 1 : 0;
     m.needsUpdate = true;
   }
-}
-
-// Called once a model has been measured: sizes the grid to that character so
-// they all read at the same density on screen.
-function sizeMeshGrid(root, height) {
-  if (!height) return;
-  root.traverse((o) => {
-    for (const m of [o.material].flat()) {
-      if (m?.userData?.mesh) m.userData.mesh.uGrid.value = MESH_LINES / height;
-    }
-  });
 }
 
 // glTF gives us MeshStandardMaterial; MeshPhysicalMaterial adds the clearcoat.
@@ -154,7 +93,7 @@ function toGlossy(m) {
     envMapIntensity: GLOSS.envIntensity,
   });
   g.name = m.name;
-  characterMaterials.add(withMeshGrid(g));
+  characterMaterials.add(g);
   return g;
 }
 
@@ -478,7 +417,6 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
       rig.updateMatrixWorld(true);
       resize();
       measurement = measureObject(pivot);
-      sizeMeshGrid(pivot, measurement.size.y);
       setFraming(modelDistanceScale, modelVerticalAnchor);
     });
   }
