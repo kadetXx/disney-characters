@@ -1097,6 +1097,7 @@ function switchDetail(characterId) {
 }
 
 function showGrid() {
+  resetYawFollow();
   state.view = "grid";
   // flies the character back into its card when there is one in the air to
   // fly; falls back to a plain mount otherwise (first load, or a failed flight)
@@ -1609,6 +1610,8 @@ function flyToDetail(character, cardCanvas) {
 }
 
 function showDetail(characterId, cardCanvas) {
+  // a new character starts facing front, however the last one was left
+  resetYawFollow();
   const character = getCharacter(characterId);
   const fromDetail = state.view === "detail";
   state.view = "detail";
@@ -1625,23 +1628,35 @@ function showDetail(characterId, cardCanvas) {
 /* Turning the character with the cursor                              */
 /* ------------------------------------------------------------------ */
 
-// How far past the character's own edge the cursor still counts as over it,
-// and how much of a turn the full width of it is worth.
+// How far past the character's own edge the cursor still counts as over her,
+// how much of a turn the swing is worth, and the half-width the swing is
+// mapped across as a share of the canvas.
 const YAW_HOVER_PAD = 24;
 const YAW_SWING = 0.42;
-// half-width of the band the swing is mapped across, as a share of the canvas.
-// The character sits in roughly the middle half of its overscanned canvas.
-const YAW_SPAN = 0.25;
+const YAW_SPAN = 0.5;
 
-// Hit-tested against the RENDERED PIXELS rather than the element. The mascot
-// canvas is a big rectangle that overlaps the rail's buttons, and it carries
-// pointer-events:none precisely so it cannot swallow them -- so it never
-// receives pointer events of its own and there is nothing to hover. Reading
-// the alpha the character actually drew gives the silhouette instead of the
-// box: the cursor activates it over the character and nowhere else, and the
-// rail underneath stays clickable.
+// Arming is hit-tested against the RENDERED PIXELS rather than the element.
+// The mascot canvas is a big rectangle that overlaps the rail's buttons, and
+// it carries pointer-events:none precisely so it cannot swallow them -- so it
+// never receives pointer events of its own and there is nothing to hover.
+// Reading the alpha the character actually drew gives the silhouette instead
+// of the box: she arms over herself and nowhere else, and the rail underneath
+// stays clickable.
+//
+// Once armed she keeps following the cursor wherever it goes. Dropping the
+// follow the moment the pointer left her outline made it almost unusable --
+// she is a narrow, awkward target and any turn moves her out from under the
+// very cursor that caused it. Only navigating away resets it.
+let yawArmed = false;
 let yawFrame = null;
 let lastPointer = null;
+
+// called whenever the expanded character changes or the view is left
+function resetYawFollow() {
+  yawArmed = false;
+  const canvas = document.querySelector(".detail-mascot-canvas");
+  state.viewers.find((v) => v.canvas === canvas)?.setYawOffset(0);
+}
 
 function pointerYaw() {
   yawFrame = null;
@@ -1653,37 +1668,32 @@ function pointerYaw() {
   const box = canvas.getBoundingClientRect();
   if (!box.width || !box.height) return;
 
-  const inBox =
-    lastPointer.x >= box.left - YAW_HOVER_PAD &&
-    lastPointer.x <= box.right + YAW_HOVER_PAD &&
-    lastPointer.y >= box.top - YAW_HOVER_PAD &&
-    lastPointer.y <= box.bottom + YAW_HOVER_PAD;
-  if (!inBox) {
-    viewer.setYawOffset(0);
-    return;
-  }
+  if (!yawArmed) {
+    const inBox =
+      lastPointer.x >= box.left - YAW_HOVER_PAD &&
+      lastPointer.x <= box.right + YAW_HOVER_PAD &&
+      lastPointer.y >= box.top - YAW_HOVER_PAD &&
+      lastPointer.y <= box.bottom + YAW_HOVER_PAD;
+    if (!inBox) return;
 
-  // the character's own pixels, in the canvas's backing store
-  const px = Math.round(((lastPointer.x - box.left) / box.width) * canvas.width);
-  const py = Math.round(((lastPointer.y - box.top) / box.height) * canvas.height);
-  let over = false;
-  if (px >= 0 && py >= 0 && px < canvas.width && py < canvas.height) {
+    // the character's own pixels, in the canvas's backing store
+    const px = Math.round(((lastPointer.x - box.left) / box.width) * canvas.width);
+    const py = Math.round(((lastPointer.y - box.top) / box.height) * canvas.height);
+    if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) return;
+    let over = false;
     try {
       over = canvas.getContext("2d").getImageData(px, py, 1, 1).data[3] > 24;
     } catch {
       over = false;
     }
-  }
-  if (!over) {
-    viewer.setYawOffset(0);
-    return;
+    if (!over) return;
+    yawArmed = true;
   }
 
-  // Which side of the character the cursor is on, as -1..1. Measured against
-  // the middle half of the canvas rather than the whole of it: the canvas is
-  // deliberately overscanned and the character only occupies roughly that
-  // middle band, so mapping across the full box meant hovering it never got
-  // anywhere near the ends of the swing.
+  // Where the cursor sits relative to her, as -1..1, so she turns to face it.
+  // Mapped across half the canvas rather than the whole of it: it is
+  // overscanned and she occupies only the middle band, so the full box put
+  // both ends of the swing out of reach.
   const span = box.width * YAW_SPAN;
   const side = Math.max(-1, Math.min(1, (lastPointer.x - (box.left + box.width / 2)) / span));
   viewer.setYawOffset(side * YAW_SWING);
@@ -1699,12 +1709,6 @@ document.addEventListener(
   },
   { passive: true }
 );
-
-// let go the moment the cursor leaves the window, or it keeps its last turn
-document.addEventListener("pointerleave", () => {
-  const canvas = document.querySelector(".detail-mascot-canvas");
-  state.viewers.find((v) => v.canvas === canvas)?.setYawOffset(0);
-});
 
 // The Menu button has nothing to open, so it toggles a look at how the page is
 // built instead: the whole thing desaturates and every character drops its
