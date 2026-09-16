@@ -182,8 +182,17 @@ function buildGridView() {
   const mounts = characters.map((character) => {
     const { card, mount } = buildCharacterCard(character);
     track.appendChild(card);
-    return { card, mount };
+    return {
+      id: character.id,
+      card,
+      mount,
+      canvas: card.querySelector("canvas"),
+      panel: card.querySelector(".char-card-panel"),
+    };
   });
+  // how the reverse flight finds the card it is flying back into
+  view.cardFor = (id) => mounts.find((m) => m.id === id) ?? null;
+  view.otherCards = (id) => mounts.filter((m) => m.id !== id).map((m) => m.card);
 
   // Every model starts downloading now, on-screen or not. Only the per-viewer
   // work is deferred (see mountNearby). Deferring the fetch as well was a
@@ -264,6 +273,38 @@ function buildGridView() {
     if (performance.now() < slideUntil) return;
     goToPage(currentPage() + direction);
   }
+
+  // The page a given card sits on: the first one whose screenful contains it
+  // outright, and failing that the last, which is where a card past the end of
+  // every page must be. With two pages that is simply "left side or right
+  // side", which is all the carousel can express.
+  function pageHolding(card) {
+    const offsets = pageOffsets();
+    const left = card.offsetLeft;
+    const right = left + card.offsetWidth;
+    for (let i = 0; i < offsets.length; i++) {
+      if (left >= offsets[i] - 1 && right <= offsets[i] + track.clientWidth + 1) return i;
+    }
+    return offsets.length - 1;
+  }
+
+  // Jump (never slide) the carousel to wherever a character's card lives.
+  // Used when returning from the detail view so the card is already on screen
+  // -- and, for the reverse flight, so it can be measured before anything
+  // moves. scroll-behavior is smooth in the stylesheet, so it has to be
+  // overridden or this animates instead of applying at once.
+  function revealCard(characterId) {
+    const index = characters.findIndex((c) => c.id === characterId);
+    const entry = mounts[index];
+    if (!entry) return;
+    const previous = track.style.scrollBehavior;
+    track.style.scrollBehavior = "auto";
+    track.scrollLeft = pageOffsets()[pageHolding(entry.card)] ?? 0;
+    track.style.scrollBehavior = previous;
+    syncPagerState();
+    syncEdgeScale();
+  }
+  view.revealCard = revealCard;
 
   track.addEventListener(
     "wheel",
@@ -614,18 +655,246 @@ function dropOutgoingCards() {
   outgoingCards = [];
 }
 
-function mount(buildFn) {
+// fade:false is for the reverse flight, which measures rects inside the view it
+// has just mounted -- fadeIn enters from scale(0.96), so anything measured
+// under it is 4% short and the flight lands in the wrong place.
+function mount(buildFn, { fade = true } = {}) {
   dropOutgoingCards();
   clearViewers();
   app.innerHTML = "";
   const view = buildFn();
   app.appendChild(view);
-  fadeIn(view);
+  if (fade) fadeIn(view);
+  return view;
+}
+
+// How long the other cards take to arrive behind the shrinking panel, and how
+// far into the flight they start. They are not reversing their exit -- they
+// simply turn up, which is what makes the shrinking character the only thing
+// the eye has to follow.
+const CARD_RETURN_SECONDS = 0.34;
+const CARD_RETURN_DELAY = 0.22;
+// the detail panel's own text goes early, while the box is still near full
+// size; below about this the layout it was written for no longer fits
+const DETAIL_TEXT_FADE = 0.28;
+
+// The mirror of flyToDetail: carries the expanded character back into its card
+// rather than cutting to the grid. Same machinery throughout -- the mascot's
+// own canvas and viewer are adopted, the canvas is sized once to the union of
+// both rects, and the character is moved by camera framing alone.
+function flyToGrid(characterId) {
+  const character = getCharacter(characterId);
+  const detailView = app.firstElementChild;
+  const mascotCanvas = detailView?.querySelector(".detail-mascot-canvas");
+  const viewer = mascotCanvas && state.viewers.find((v) => v.canvas === mascotCanvas);
+  if (!viewer) return false;
+
+  const from = mascotCanvas.getBoundingClientRect();
+  if (!from.width || !from.height) return false;
+
+  // anything still in the air from the expand (its text ghost, the footer)
+  dropOutgoingCards();
+
+  const detailPanel = detailView.querySelector(".detail-panel");
+  const panelFrom = detailPanel?.getBoundingClientRect();
+  const panelFromCorners = detailPanel ? readCorners(detailPanel) : null;
+  const detailContents = detailPanel ? [...detailPanel.children] : [];
+
+  // hand the viewer to the flight before clearViewers() can dispose it
+  state.viewers = state.viewers.filter((v) => v !== viewer);
+
+  // Lift the two pieces that carry across out of the detail view before it is
+  // torn down. Both are pinned to the box they already occupy, so nothing
+  // moves in the frame the grid replaces the detail layout.
+  if (detailPanel && panelFrom) {
+    Object.assign(detailPanel.style, {
+      position: "fixed",
+      margin: "0",
+      left: `${panelFrom.left}px`,
+      top: `${panelFrom.top}px`,
+      width: `${panelFrom.width}px`,
+      height: `${panelFrom.height}px`,
+      zIndex: "5",
+      pointerEvents: "none",
+      ...panelFromCorners,
+    });
+    document.body.appendChild(detailPanel);
+    outgoingCards.push(detailPanel);
+  }
+  // the class has to come OFF, not just have .flight-canvas added alongside:
+  // .detail-mascot-canvas is declared later in the stylesheet, so at equal
+  // specificity its position:absolute and z-index:6 would beat the flight's
+  // fixed/60 and the canvas would be laid out against a detail view that no
+  // longer exists. Losing its aura with it is correct -- the flight never
+  // carries one.
+  mascotCanvas.classList.remove("detail-mascot-canvas");
+  mascotCanvas.classList.add("flight-canvas");
+  document.body.appendChild(mascotCanvas);
+
+  // The close button and the rail's name labels go the same way -- pinned and
+  // faded rather than deleted with the view. They fade in on the way out to
+  // the detail layout, so cutting them on the way back was the one asymmetry
+  // left in the pair.
+  for (const el of [detailView.querySelector(".close-row"), detailView.querySelector(".detail-rail")]) {
+    if (!el) continue;
+    const box = el.getBoundingClientRect();
+    Object.assign(el.style, {
+      position: "fixed",
+      margin: "0",
+      left: `${box.left}px`,
+      top: `${box.top}px`,
+      width: `${box.width}px`,
+      height: `${box.height}px`,
+      pointerEvents: "none",
+    });
+    document.body.appendChild(el);
+    outgoingCards.push(el);
+    gsap.to(el, {
+      opacity: 0,
+      duration: FLIGHT_SECONDS * DETAIL_TEXT_FADE,
+      ease: "power2.in",
+      onComplete: () => el.remove(),
+    });
+  }
+
+  clearViewers();
+  app.innerHTML = "";
+
+  // Built without the usual fadeIn for the same reason the forward flight
+  // skips it: everything below is measured inside this view.
+  const view = buildGridView();
+  app.appendChild(view);
+  view.revealCard(characterId);
+
+  const target = view.cardFor(characterId);
+  if (!target) return false;
+  const to = target.canvas.getBoundingClientRect();
+  // the flying character stands in for this one until it lands
+  target.canvas.style.visibility = "hidden";
+
+  // The card's own viewer has to be building while the flight is in the air,
+  // or the hand-off at the end has nothing to hand over to. Its model is
+  // already cached, so this is the Box3 and the upload, not a download.
+  // mount() is idempotent and ignores the callback once a viewer exists, so
+  // the landing cannot just call it again and expect to be told -- it has to
+  // leave word here instead.
+  let cardReady = false;
+  let whenCardReady = null;
+  target.mount(() => {
+    cardReady = true;
+    whenCardReady?.();
+  });
+
+  // The other cards simply arrive. They are behind the panel for most of the
+  // flight anyway, so there is nothing to reverse.
+  const others = view.otherCards(characterId);
+  if (others.length) {
+    gsap.fromTo(
+      others,
+      { opacity: 0 },
+      {
+        opacity: 1,
+        duration: CARD_RETURN_SECONDS,
+        ease: "power2.out",
+        delay: FLIGHT_SECONDS * CARD_RETURN_DELAY,
+      }
+    );
+  }
+
+  if (detailPanel && panelFrom) {
+    const panelTo = target.panel.getBoundingClientRect();
+    const panelToCorners = readCorners(target.panel);
+    // out early, while the box is still big enough for the layout they were
+    // written for; visibility follows so they cannot spill as it shrinks
+    gsap.to(detailContents, {
+      opacity: 0,
+      duration: FLIGHT_SECONDS * DETAIL_TEXT_FADE,
+      ease: "power2.in",
+      onComplete: () => gsap.set(detailContents, { visibility: "hidden" }),
+    });
+
+    const baseEase = gsap.parseEase("power3.inOut");
+    const shrink = { t: 0 };
+    gsap.to(shrink, {
+      t: 1,
+      duration: FLIGHT_SECONDS,
+      ease: "none",
+      onUpdate() {
+        const e = baseEase(shrink.t);
+        Object.assign(detailPanel.style, {
+          left: `${lerp(panelFrom.left, panelTo.left, e)}px`,
+          top: `${lerp(panelFrom.top, panelTo.top, e)}px`,
+          width: `${lerp(panelFrom.width, panelTo.width, e)}px`,
+          height: `${lerp(panelFrom.height, panelTo.height, e)}px`,
+          ...Object.fromEntries(
+            CORNERS.map((corner) => [
+              corner,
+              `${lerp(parseFloat(panelFromCorners[corner]) || 0, parseFloat(panelToCorners[corner]) || 0, e)}px`,
+            ])
+          ),
+        });
+      },
+      onComplete: () => detailPanel.remove(),
+    });
+  }
+
+  const stageRect = unionRect(from, to);
+  mascotCanvas.style.left = `${stageRect.left}px`;
+  mascotCanvas.style.top = `${stageRect.top}px`;
+  mascotCanvas.style.width = `${stageRect.width}px`;
+  mascotCanvas.style.height = `${stageRect.height}px`;
+
+  const fromFraming = detailFraming(character);
+  const toFraming = cardFraming(character);
+
+  const apply = (t) => {
+    const sharp = t <= FLIGHT_SHARP_EDGE || t >= 1 - FLIGHT_SHARP_EDGE;
+    viewer.setSize(stageRect.width, stageRect.height, sharp ? 1 : FLIGHT_RENDER_SCALE);
+    viewer.setProjectedFraming(
+      lerpRect(from, to, t),
+      stageRect,
+      lerp(fromFraming.distanceScale, toFraming.distanceScale, t),
+      lerp(fromFraming.verticalAnchor, toFraming.verticalAnchor, t)
+    );
+    viewer.render();
+  };
+  apply(0);
+
+  const progress = { t: 0 };
+  gsap.to(progress, {
+    t: 1,
+    duration: FLIGHT_SECONDS,
+    ease: "power3.inOut",
+    onUpdate: () => apply(progress.t),
+    onComplete() {
+      // same rule as the forward landing: hand over only once the card's own
+      // viewer has pixels in it, never merely because it exists
+      let landed = false;
+      const land = () => {
+        if (landed) return;
+        landed = true;
+        clearTimeout(timer);
+        target.canvas.style.visibility = "";
+        mascotCanvas.remove();
+        renderLoop.remove(viewer);
+      };
+      const timer = setTimeout(land, LANDING_TIMEOUT);
+      if (cardReady) land();
+      else whenCardReady = land;
+    },
+  });
+
+  return true;
 }
 
 function showGrid() {
   state.view = "grid";
-  mount(buildGridView);
+  // flies the character back into its card when there is one in the air to
+  // fly; falls back to a plain mount otherwise (first load, or a failed flight)
+  if (flyToGrid(state.detailId)) return;
+  const view = mount(buildGridView);
+  // come back to the page the character was on, rather than always to page one
+  view.revealCard?.(state.detailId);
 }
 
 const FLIGHT_SECONDS = 0.62;
