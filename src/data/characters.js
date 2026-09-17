@@ -74,24 +74,29 @@ export const movies = {
     "5ztzhchMcsY", // The Great Fairy Rescue -- Disney UK
   ]),
   "Inside Out": movieAssets("inside-out", "inside-out-logo.png", 1.3, [
-    "WIDYqBMFzfg", // Trailer #1
-    "seMwpP0yeu4", // Trailer #2
-    "0aEdrSbYH90", // Teaser #1
+    // The emotions are drawn emissive -- Joy is literally a light source -- so
+    // on a darkened, graded card their rim light becomes the brightest thing in
+    // the row and pulls the eye. Frames are picked for low blown-out highlights
+    // rather than by scene: measuring the share of pixels above 235 separates
+    // them cleanly (8.8% for Joy at Long Term Memory, 0.4% for these two).
+    "8XInTTCydDQ", // four emotions at the console -- moving house
+    "aOE92_DnZ_0", // Disgust at the console
+    "nEUzQ7yL9A0", // Get To Know Your Emotions
   ]),
   "Zootopia": movieAssets("zootopia", "zootopia-logo.png", 1.4, [
     "Vsjghjdt7GY", // "Judy Hopps Leaves the Carrot Farm" clip -- Disney
-    "5nP9hU8eUfE", // Teaser #1
-    "lvEzTjuM81A", // Trailer #2
+    "AB1BxqB8kxA", // Flash the sloth at the DMV
+    "w9rAB4UTtlQ", // Night Howlers scene
   ]),
   "Moana": movieAssets("moana", "moana-logo.png", 1.8, [
-    "LKFuXETZUsI", // Official Trailer -- Walt Disney Animation Studios
+    "wkAQAV1jBTs", // "The Ocean Insists" scene
     "x6WlZbeaNHE", // Trailer 2
-    "yfCOEGyHMwc", // Teaser #1
+    "zjHYnmH4GbE", // "You're Welcome" song scene
   ]),
   "Wreck-It Ralph": movieAssets("wreck-it-ralph", "wreck-it-ralph-logo.webp", 1.3, [
-    "P1Np5N98Gcw", // New Trailer -- Disney UK
-    "vf4r5q8-aWo", // Official Trailer #1
-    "IFIbQSjTopM", // International Trailer #1
+    "2EFey5M_G8A", // Ralph meets Vanellope
+    "0dEFNCCVDos", // Ralph and Vanellope make a deal
+    "VFHixDtU0to", // Vanellope in Sugar Rush
   ]),
 };
 

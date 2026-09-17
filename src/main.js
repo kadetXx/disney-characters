@@ -35,6 +35,17 @@ function gradientCss(character) {
   return `linear-gradient(135deg, ${a} 0%, ${b} 60%, ${c} 100%)`;
 }
 
+// The panel's colour, and the tint its clip stills are graded toward. Three
+// unrelated trailer frames side by side brought three unrelated palettes with
+// them and fought both each other and the panel; toned to one colour they read
+// as a row of three rather than three separate pictures. The middle gradient
+// stop is the panel's dominant tone -- the ends are its highlight and shadow.
+function paintPanel(panel, character) {
+  panel.style.background = gradientCss(character);
+  panel.style.setProperty("--clip-tint", character.gradient[1]);
+  panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
+}
+
 function clearViewers() {
   for (const viewer of state.viewers) renderLoop.remove(viewer);
   state.viewers = [];
@@ -158,8 +169,7 @@ function buildCharacterCard(character) {
 
   const panel = document.createElement("div");
   panel.className = "char-card-panel";
-  panel.style.background = gradientCss(character);
-  panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
+  paintPanel(panel, character);
   panel.innerHTML = `
     <h3 class="char-card-title" style="color:${character.titleTint}">${character.name}</h3>
     <p class="char-card-movie">Movie <b>${character.movie}</b></p>
@@ -739,8 +749,7 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
 
   const panel = document.createElement("div");
   panel.className = "detail-panel";
-  panel.style.background = gradientCss(character);
-  panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
+  paintPanel(panel, character);
 
 
   panel.appendChild(buildDetailInfo(character));
@@ -1191,8 +1200,7 @@ function switchDetail(characterId) {
     endActiveSwitch = null;
     tl.kill();
     // the wash becomes the panel's own background, and every outgoing piece goes
-    panel.style.background = gradientCss(character);
-    panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
+    paintPanel(panel, character);
     wash.remove();
     oldInfo.remove();
     oldClips.remove();

@@ -685,6 +685,9 @@ img {
   /* what the poster is knocked back INTO, so it has to be dark for the poster
      to read as dark -- a light wash here was undoing the knock-back */
   background: rgba(0, 0, 0, 0.42);
+  /* keeps the tint overlay blending with the card's own contents rather than
+     reaching through to the panel gradient behind it */
+  isolation: isolate;
   scroll-snap-align: start;
   display: flex;
   align-items: center;
@@ -706,7 +709,8 @@ img {
 
 .clip-play {
   position: relative;
-  z-index: 1;
+  /* above the poster and the tint that grades it, below the player */
+  z-index: 2;
   width: 44px;
   height: 44px;
   border-radius: 100%;
@@ -795,10 +799,38 @@ html.mesh-mode body::after {
   /* Knocked back so the play button stays legible over it. Opacity alone only
      blends the still toward whatever is behind it -- against the card's dark
      ground that darkens, but trailer stills are bright and it was not enough
-     on its own, so the image is dimmed directly as well. */
-  opacity: 0.62;
-  filter: brightness(0.62);
+     on its own, so the image is dimmed directly as well.
+
+     Most of the saturation comes out here; what colour the still keeps is
+     supplied by the tint overlay, which is the same for all three cards. */
+  opacity: 0.7;
+  filter: grayscale(0.3) brightness(0.62);
+  z-index: 0;
   transition: opacity 200ms ease;
+}
+
+/* The grade. Blend mode `color` takes hue and saturation from this layer and
+   leaves the still's luminance alone, so the picture keeps all its detail and
+   only its palette is replaced -- three different frames, one colour. */
+.clip-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--clip-tint, transparent);
+  mix-blend-mode: color;
+  /* Half strength: enough that the three stills sit in the same family, not so
+     much that they all become one flat colour. Moves in step with the
+     grayscale above -- draining the colour out and not putting much back is
+     what reads as washed rather than graded. */
+  opacity: 0.25;
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+/* the grade is for the still; the video plays in its own colours */
+.clip-card.is-playing::after {
+  opacity: 0;
 }
 
 .clip-card.is-playing .clip-poster {
