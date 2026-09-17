@@ -595,37 +595,91 @@ function buildClips(character) {
   track.className = "clips-track";
 
   getMovie(character.movie).clips.forEach((clip, i) => {
-    const card = document.createElement("button");
+    // A div, not a button: once it is playing it contains an iframe, and a
+    // button wrapping an interactive player swallows the player's own controls
+    // (and is invalid). It carries the button role only while it is still a
+    // poster waiting to be clicked -- stopClip puts that back.
+    const card = document.createElement("div");
     card.className = "clip-card";
-    card.type = "button";
-    card.setAttribute("aria-label", `Play ${character.movie} clip ${i + 1}`);
-    // preload none: three videos per character, six characters, and most are
-    // never played. The poster is what gets seen until one is asked for.
     card.innerHTML = `
-      <img class="clip-poster" src="${clip.poster}" alt="">
-      <video class="clip-video" src="${clip.src}" loop playsinline preload="none"></video>
+      <img class="clip-poster" src="${clip.poster}" alt="" loading="lazy">
       <span class="clip-play">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M10 8.5L16 12L10 15.5V8.5Z" fill="#243A74"/></svg>
       </span>
     `;
-    const video = card.querySelector(".clip-video");
-    card.addEventListener("click", () => {
-      const playing = card.classList.contains("is-playing");
-      // only ever one at a time, so clicking a second does not leave the
-      // first running behind it
+
+    // A video with no maxres thumbnail comes back as a 120x90 grey placeholder
+    // on a 404, which loads successfully as far as the browser is concerned --
+    // so both the error and the too-small case have to be caught.
+    const poster = card.querySelector(".clip-poster");
+    const useFallback = () => {
+      if (poster.dataset.fallback) return;
+      poster.dataset.fallback = "1";
+      poster.src = clip.posterFallback;
+    };
+    poster.addEventListener("error", useFallback);
+    poster.addEventListener("load", () => {
+      if (poster.naturalWidth < 320) useFallback();
+    });
+
+    const asPoster = () => {
+      card.setAttribute("role", "button");
+      card.setAttribute("tabindex", "0");
+      card.setAttribute("aria-label", `Play ${character.movie} trailer ${i + 1}`);
+    };
+    asPoster();
+
+    const stop = () => {
+      card.classList.remove("is-playing");
+      // Removing the iframe is what actually stops it -- there is no pause()
+      // to reach for without loading YouTube's player API, and leaving it in
+      // the DOM leaves the audio running. It costs nothing to rebuild: the
+      // next click makes a fresh one.
+      card.querySelector(".clip-embed")?.remove();
+      asPoster();
+    };
+
+    const play = () => {
+      if (card.classList.contains("is-playing")) return;
+      // only ever one at a time, so starting a second does not leave the first
+      // playing behind it
       for (const other of track.querySelectorAll(".clip-card.is-playing")) {
-        other.classList.remove("is-playing");
-        other.querySelector(".clip-video")?.pause();
+        other.dispatchEvent(new CustomEvent("clip:stop"));
       }
-      if (playing) return;
       card.classList.add("is-playing");
-      // a click is a user gesture, so this is allowed to have sound
-      video.muted = false;
-      video.play().catch(() => {
-        // autoplay policy, a missing file, an unsupported codec -- fall back
-        // to the poster rather than leaving a dead black rectangle
-        card.classList.remove("is-playing");
-      });
+      // it is the player's turn to handle keys and clicks now
+      card.removeAttribute("role");
+      card.removeAttribute("tabindex");
+      card.removeAttribute("aria-label");
+
+      // Built on click rather than up front: eighteen embeds across six
+      // characters, nearly all of them never played, and each one is a whole
+      // document. The poster is what gets seen until one is asked for.
+      // autoplay is allowed here because the click IS the user gesture.
+      const frame = document.createElement("iframe");
+      frame.className = "clip-embed";
+      frame.title = `${character.movie} trailer ${i + 1}`;
+      frame.allow =
+        "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+      frame.allowFullscreen = true;
+      frame.referrerPolicy = "strict-origin-when-cross-origin";
+      // -nocookie so idle viewers who never press play are not tracked
+      frame.src =
+        `https://www.youtube-nocookie.com/embed/${clip.youtubeId}` +
+        `?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+      card.appendChild(frame);
+    };
+
+    card.addEventListener("clip:stop", stop);
+    card.addEventListener("click", () => {
+      if (!card.classList.contains("is-playing")) play();
+    });
+    card.addEventListener("keydown", (event) => {
+      if (card.classList.contains("is-playing")) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        play();
+      }
     });
     track.appendChild(card);
   });
@@ -1154,7 +1208,18 @@ function switchDetail(characterId) {
   return true;
 }
 
+// A playing embed is a live document with sound, and the flight back to the
+// grid takes long enough for it to be heard over a view it no longer belongs
+// to. Switching characters tears its clip row out of the DOM, which stops it;
+// closing does not, so it is stopped here.
+function stopAllClips() {
+  for (const card of document.querySelectorAll(".clip-card.is-playing")) {
+    card.dispatchEvent(new CustomEvent("clip:stop"));
+  }
+}
+
 function showGrid() {
+  stopAllClips();
   resetYawFollow();
   state.view = "grid";
   // flies the character back into its card when there is one in the air to

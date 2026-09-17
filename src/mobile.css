@@ -214,6 +214,14 @@
     transform: scale(0.6);
   }
 
+  /* held at the size it already was here: scale(0.6) above shrinks the glyph
+     along with the disc, so the base sheet's bigger icon would have grown this
+     one too -- and the phone's play button is already the size it should be */
+  .clip-play svg {
+    width: 18px;
+    height: 18px;
+  }
+
   /* Characters are framed per pose, so on a card their lowest point lands
      anywhere from overlapping the name to floating well clear of it. This
      evens that out -- see cardNudge in the character data. */

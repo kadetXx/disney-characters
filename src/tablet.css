@@ -81,9 +81,9 @@
     top: calc(-4% + var(--detail-shift-y, 0%));
   }
 
+  /* width only -- the height comes from the base sheet's 16:9 aspect-ratio */
   .clip-card {
     width: clamp(132px, 19vw, 200px);
-    height: clamp(84px, 12vw, 126px);
   }
 
   /* The clip row must never be the thing that gives. .detail-clips carries
@@ -118,10 +118,12 @@
     gap: 10px;
   }
 
-  /* short enough that the row still fits once the deeper bottom padding is
-     taken out of the panel -- this is the height that pays for that space */
+  /* narrow enough that the row still fits once the deeper bottom padding is
+     taken out of the panel -- this is the size that pays for that space. Set
+     via width, so the 16:9 ratio carries the height with it; setting height
+     alone squashed the card to 2.49:1 and letterboxed everything in it. */
   .clip-card {
-    height: clamp(58px, 7.6vw, 80px);
+    width: clamp(120px, 16vw, 172px);
   }
 
   .detail-panel {

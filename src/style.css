@@ -637,6 +637,11 @@ img {
 .clips-track {
   display: flex;
   flex-direction: row;
+  /* not the default stretch: stretch sets a definite height on every card,
+     which beats aspect-ratio, so whenever the row was even slightly shorter
+     than 16:9 wanted, the cards were quietly squashed to fit it (1.817 on
+     desktop) and the player letterboxed the video back to shape inside them */
+  align-items: flex-start;
   gap: 20px;
   overflow-x: auto;
   scroll-snap-type: x proximity;
@@ -669,10 +674,17 @@ img {
 .clip-card {
   position: relative;
   width: clamp(150px, 15.5vw, 340px);
-  height: clamp(95px, 9.7vw, 215px);
+  /* 16:9, derived -- never a second clamp. Width and height clamped apart
+     drift out of ratio (this card was 1.598), and everything inside is 16:9:
+     the poster gets cover-cropped to the wrong shape, and the embedded player
+     letterboxes the video with black bars to make up the difference. */
+  height: auto;
+  aspect-ratio: 16 / 9;
   flex-shrink: 0;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.14);
+  /* what the poster is knocked back INTO, so it has to be dark for the poster
+     to read as dark -- a light wash here was undoing the knock-back */
+  background: rgba(0, 0, 0, 0.42);
   scroll-snap-align: start;
   display: flex;
   align-items: center;
@@ -680,16 +692,16 @@ img {
   overflow: hidden;
 }
 
-.clip-video {
+/* The YouTube embed, added on click and removed on stop. It covers the poster
+   and the play button rather than sitting behind them -- once it exists it is
+   the whole card, and it needs every click for its own controls. */
+.clip-embed {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  /* sits behind the play button, and knocked back so the button stays legible
-     over whatever frame happens to be showing */
-  opacity: 0.65;
-  z-index: 0;
+  border: 0;
+  z-index: 3;
 }
 
 .clip-play {
@@ -780,8 +792,12 @@ html.mesh-mode body::after {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  /* knocked back like the video was, so the play button stays legible over it */
-  opacity: 0.65;
+  /* Knocked back so the play button stays legible over it. Opacity alone only
+     blends the still toward whatever is behind it -- against the card's dark
+     ground that darkens, but trailer stills are bright and it was not enough
+     on its own, so the image is dimmed directly as well. */
+  opacity: 0.62;
+  filter: brightness(0.62);
   transition: opacity 200ms ease;
 }
 
@@ -789,19 +805,25 @@ html.mesh-mode body::after {
   opacity: 0;
 }
 
-/* hidden until played, so a black rectangle never shows through the poster */
-.clip-card .clip-video {
-  opacity: 0;
-}
-
-.clip-card.is-playing .clip-video {
-  opacity: 1;
-}
-
 .clip-card.is-playing .clip-play {
   opacity: 0;
 }
 
+/* only the poster is clickable-looking until it is playing; afterwards the
+   embed is on top and takes the pointer itself */
+.clip-card[role="button"] {
+  cursor: pointer;
+}
+
 .clip-play {
   transition: opacity 200ms ease;
+}
+
+/* The glyph only, not the white disc around it. The triangle occupies about a
+   quarter of its own viewBox, so at the 18px the markup asks for it was a
+   4.5px arrowhead adrift in a 44px circle. Sized here rather than on the
+   element so each breakpoint can set it independently of the disc. */
+.clip-play svg {
+  width: 36px;
+  height: 36px;
 }
