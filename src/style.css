@@ -576,8 +576,12 @@ img {
 
 .detail-badge {
   position: relative;
-  /* the footprint the four circles occupied, kept so swapping them for a logo
-     did not move the text beside it */
+  /* The footprint the four circles occupied. It has to stay this width: the
+     info row is space-between, so a wider badge narrows the description
+     column, which wraps to an extra line, which pushes the clip row down --
+     measured, 230px here cost a sixth line and left the cards 10px off the
+     bottom of the screen instead of 41. Logos get bigger by scaling, below,
+     which costs the layout nothing. */
   width: 150px;
   height: 130px;
   flex-shrink: 0;
@@ -589,6 +593,14 @@ img {
 .movie-logo {
   max-width: 100%;
   max-height: 100%;
+  /* Per-movie, because the logos are not alike: some are a bare wordmark,
+     some a full lockup with a studio mark that turns to mush at the same
+     size. A transform rather than a width so the slot's footprint -- and
+     therefore everything below it -- does not move. Growing from the right
+     edge keeps it anchored where the circles were and sends the extra into
+     the gap beside the text. */
+  transform: scale(var(--logo-scale, 1));
+  transform-origin: right center;
   /* contain, never cover: a logo cropped is a logo ruined, and these arrive at
      whatever aspect the film's mark happens to be */
   object-fit: contain;

@@ -495,9 +495,11 @@ function rgba(hex, a) {
 function buildBadge(character) {
   const badge = document.createElement("div");
   badge.className = "detail-badge";
+  const movie = getMovie(character.movie);
   const logo = document.createElement("img");
   logo.className = "movie-logo";
-  logo.src = getMovie(character.movie).logo;
+  logo.src = movie.logo;
+  logo.style.setProperty("--logo-scale", movie.logoScale ?? 1);
   // decorative: the movie is already named in the text beside it
   logo.alt = "";
   badge.appendChild(logo);

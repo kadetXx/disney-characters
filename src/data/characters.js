@@ -32,11 +32,18 @@ const MOVIE_BASE = import.meta.env.BASE_URL + "movies/";
 // click, and is the shared placeholder until there are real ones.
 const PLACEHOLDER_CLIP = import.meta.env.BASE_URL + "clip-placeholder.mp4";
 
-function movieAssets(slug) {
+// logoFile is spelled out rather than derived, because the real logos arrive
+// in whatever format they were found in -- webp, png, svg -- and there is no
+// reason to re-encode them just to satisfy a naming rule.
+function movieAssets(slug, logoFile = `${slug}-logo.svg`, logoScale = 1) {
   return {
-    // one logo per movie. Wider than tall, transparent, and drawn in a light
-    // ink because the panel behind it is always a dark gradient.
-    logo: `${MOVIE_BASE}${slug}-logo.svg`,
+    // how much bigger than the slot this particular logo wants to be drawn.
+    // Tuned per movie by eye -- a wordmark reads at 1, a lockup carrying a
+    // studio mark needs more before the small type resolves.
+    logoScale,
+    // one logo per movie. Wider than tall, transparent, and light enough to
+    // read, because the panel behind it is always a dark character gradient.
+    logo: MOVIE_BASE + logoFile,
     clips: [1, 2, 3].map((n) => ({
       poster: `${MOVIE_BASE}${slug}-clip-${n}.svg`,
       src: PLACEHOLDER_CLIP,
@@ -45,8 +52,8 @@ function movieAssets(slug) {
 }
 
 export const movies = {
-  "Tinkerbell": movieAssets("tinkerbell"),
-  "Inside Out": movieAssets("inside-out"),
+  "Tinkerbell": movieAssets("tinkerbell", "tinkerbell-logo.png", 1.5),
+  "Inside Out": movieAssets("inside-out", "inside-out-logo.png", 1.3),
   "Zootopia": movieAssets("zootopia"),
   "Moana": movieAssets("moana"),
   "Wreck-It Ralph": movieAssets("wreck-it-ralph"),
