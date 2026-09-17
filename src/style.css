@@ -337,7 +337,12 @@ img {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: clamp(38px, 6vh, 78px) var(--nav-pad-x) clamp(44px, 7vh, 86px);
+  /* The grid is bottom-aligned, so height taken out of here is height the
+     carousel gets -- the cards grow and sit lower. Trimmed through the vh term
+     and the ceiling rather than the floors, because small screens are already
+     pinned to those floors: this takes ~24px off a desktop and ~5px off a
+     phone, which is where the slack actually was. */
+  padding: clamp(38px, 4.8vh, 62px) var(--nav-pad-x) clamp(44px, 5.6vh, 70px);
   flex-shrink: 0;
 }
 
