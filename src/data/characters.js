@@ -54,13 +54,13 @@ function movieAssets(slug, logoFile = `${slug}-logo.svg`, logoScale = 1) {
 export const movies = {
   "Tinkerbell": movieAssets("tinkerbell", "tinkerbell-logo.png", 1.5),
   "Inside Out": movieAssets("inside-out", "inside-out-logo.png", 1.3),
-  "Zootopia": movieAssets("zootopia"),
-  "Moana": movieAssets("moana"),
-  "Wreck-It Ralph": movieAssets("wreck-it-ralph"),
+  "Zootopia": movieAssets("zootopia", "zootopia-logo.png", 1.4),
+  "Moana": movieAssets("moana", "moana-logo.png", 1.8),
+  "Wreck-It Ralph": movieAssets("wreck-it-ralph", "wreck-it-ralph-logo.webp", 1.3),
 };
 
 export function getMovie(title) {
-  return movies[title] ?? movieAssets("inside-out");
+  return movies[title] ?? movies["Inside Out"];
 }
 
 export const characters = [
