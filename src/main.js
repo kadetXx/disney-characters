@@ -713,6 +713,71 @@ function mountMascotViewer(onPainted) {
   mount?.(onPainted);
 }
 
+// Up and down switch characters here, the way left and right do in the grid.
+// The same model as the carousel's: a swipe is one discrete command, not a
+// drag that tracks the finger, and input is ignored until the swap it started
+// has finished -- one trackpad flick fires dozens of wheel events, and without
+// the cooldown they queue up and skate several characters past the one asked
+// for. Thresholds and the cooldown are shared with the carousel so both
+// gestures need the same amount of intent.
+const DETAIL_WHEEL_THRESHOLD = 24;
+const DETAIL_SWIPE_THRESHOLD = 40;
+
+function attachDetailSwipe(view) {
+  let busyUntil = 0;
+
+  // up goes forward -- finger and content travel together, and it matches the
+  // wheel, where scrolling down is also forward; down goes back, with the
+  // whole transition mirrored
+  const step = (direction) => {
+    if (performance.now() < busyUntil) return;
+    const index = characters.findIndex((c) => c.id === state.detailId);
+    if (index < 0) return;
+    const target = characters[(index + direction + characters.length) % characters.length];
+    // read at call time: SWITCH_SECONDS is declared further down the file
+    busyUntil = performance.now() + SWITCH_SECONDS * 1000;
+    showDetail(target.id, null, direction);
+  };
+
+  view.addEventListener(
+    "wheel",
+    (event) => {
+      // the clip row is its own horizontal scroller -- a sideways gesture over
+      // it belongs to the clips, not to us
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      if (Math.abs(event.deltaY) < DETAIL_WHEEL_THRESHOLD) return;
+      event.preventDefault();
+      step(Math.sign(event.deltaY));
+    },
+    { passive: false }
+  );
+
+  let startX = null;
+  let startY = null;
+  view.addEventListener(
+    "touchstart",
+    (event) => {
+      startX = event.touches[0].clientX;
+      startY = event.touches[0].clientY;
+    },
+    { passive: true }
+  );
+  view.addEventListener(
+    "touchend",
+    (event) => {
+      if (startY === null) return;
+      const dx = event.changedTouches[0].clientX - startX;
+      const dy = event.changedTouches[0].clientY - startY;
+      startX = startY = null;
+      // vertical intent only, so swiping the clip row sideways still scrolls it
+      if (Math.abs(dy) <= Math.abs(dx)) return;
+      if (Math.abs(dy) < DETAIL_SWIPE_THRESHOLD) return;
+      step(dy < 0 ? 1 : -1);
+    },
+    { passive: true }
+  );
+}
+
 function buildDetailView(characterId, { deferMascot = false } = {}) {
   const character = getCharacter(characterId);
   const nextCharacter = characters[(characters.findIndex((c) => c.id === characterId) + 1) % characters.length];
@@ -762,6 +827,8 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
 
   const canvas = buildMascotCanvas(character);
   body.appendChild(canvas);
+
+  attachDetailSwipe(view);
 
   view.appendChild(body);
 
@@ -1059,8 +1126,8 @@ const SWITCH_TEXT_SCALE = 0.95;
 // how far the clip row drops as it leaves, and arrives from
 const SWITCH_CLIPS_DROP = 44;
 // how far each model travels, as a share of its own height. The outgoing one
-// goes DOWN and the incoming arrives from above, so the swap runs the same way
-// the rail's chevron points.
+// goes UP and the incoming arrives from below, so a swipe up carries you
+// forward the way it does in any vertical feed.
 const SWITCH_MODEL_TRAVEL = 0.5;
 
 // Snaps an in-flight switch to its finished state. Set while one is running so
@@ -1072,7 +1139,7 @@ let endActiveSwitch = null;
 // its colour washes over to the next character's, the copy cross-fades, the
 // clip row drops away and the model is swapped top to bottom, following the
 // chevron. Nothing relayouts and the page never slides.
-function switchDetail(characterId) {
+function switchDetail(characterId, direction = 1) {
   // a second click while the first swap is still running would otherwise leave
   // two outgoing copies of everything behind
   endActiveSwitch?.();
@@ -1143,7 +1210,13 @@ function switchDetail(characterId) {
   body.appendChild(newCanvas);
   mountMascot(newCanvas, character, null);
 
-  const travel = oldCanvas.getBoundingClientRect().height * SWITCH_MODEL_TRAVEL;
+  // +1 runs the swap UPWARD: the outgoing character leaves out of the top and
+  // the next arrives from below, the way a vertical feed moves. That pairs the
+  // two inputs the conventional way round -- scrolling the wheel down and
+  // swiping the finger up both mean "next" -- which they did not when the swap
+  // ran the other way. -1 mirrors the whole thing for going back.
+  const dir = direction < 0 ? -1 : 1;
+  const travel = oldCanvas.getBoundingClientRect().height * SWITCH_MODEL_TRAVEL * dir;
 
   const tl = gsap.timeline();
   tl.to(wash, { opacity: 1, duration: SWITCH_SECONDS * 0.7, ease: "power2.inOut" }, 0);
@@ -1157,28 +1230,27 @@ function switchDetail(characterId) {
     SWITCH_TEXT_SECONDS * 0.8
   );
 
-  tl.to(oldClips, { opacity: 0, y: SWITCH_CLIPS_DROP, duration: SWITCH_TEXT_SECONDS, ease: "power2.in" }, 0);
-  // in from ABOVE, not back up from below: the whole swap runs one way down
-  // the screen, the same way the chevron points, so the clip row arriving has
-  // to travel with the model rather than against it
+  tl.to(oldClips, { opacity: 0, y: -SWITCH_CLIPS_DROP * dir, duration: SWITCH_TEXT_SECONDS, ease: "power2.in" }, 0);
+  // in from BELOW, not down from above: the whole swap runs one way up the
+  // screen, so the clip row arriving has to travel with the model rather than
+  // against it
   tl.fromTo(
     newClips,
-    { opacity: 0, y: -SWITCH_CLIPS_DROP },
+    { opacity: 0, y: SWITCH_CLIPS_DROP * dir },
     { opacity: 1, y: 0, duration: SWITCH_TEXT_SECONDS * 1.3, ease: "power2.out" },
     SWITCH_TEXT_SECONDS * 0.8
   );
 
-  // the swap that follows the chevron: this one out of the bottom, the next in
-  // from the top
+  // this one out of the top, the next in from the bottom
   // The one leaving goes quicker than the one arriving, and on a harder curve.
   // Matching their speeds left two characters sharing the frame for most of
   // the switch, which is what made it feel crowded rather than smooth -- the
   // outgoing one has nothing left to say, so it should clear out and leave the
   // arrival to be the thing you watch.
-  tl.to(oldCanvas, { y: travel, opacity: 0, duration: SWITCH_SECONDS * 0.38, ease: "power3.in" }, 0);
+  tl.to(oldCanvas, { y: -travel, opacity: 0, duration: SWITCH_SECONDS * 0.38, ease: "power3.in" }, 0);
   tl.fromTo(
     newCanvas,
-    { y: -travel, opacity: 0 },
+    { y: travel, opacity: 0 },
     { y: 0, opacity: 1, duration: SWITCH_SECONDS * 0.7, ease: "power3.out" },
     SWITCH_SECONDS * 0.22
   );
@@ -1745,7 +1817,7 @@ function flyToDetail(character, cardCanvas) {
   return true;
 }
 
-function showDetail(characterId, cardCanvas) {
+function showDetail(characterId, cardCanvas, direction = 1) {
   // a new character starts facing front, however the last one was left
   resetYawFollow();
   const character = getCharacter(characterId);
@@ -1756,7 +1828,7 @@ function showDetail(characterId, cardCanvas) {
   // enhancement rather than a dependency: flying from a card, sliding between
   // two expanded characters, or a plain mount.
   if (cardCanvas && flyToDetail(character, cardCanvas)) return;
-  if (fromDetail && switchDetail(characterId)) return;
+  if (fromDetail && switchDetail(characterId, direction)) return;
   mount(() => buildDetailView(characterId));
 }
 
