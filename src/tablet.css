@@ -1,0 +1,134 @@
+/* ---------------------------------------------------------------- */
+/* Tablet — 1100px and under
+/*
+/* The step between the desktop composition and the phone one. Both problems
+/* here are about vertical room: the characters are drawn from a card box sized
+/* off viewport WIDTH, so on a short landscape tablet they grow taller than
+/* there is screen to hold them, and the expanded panel's copy pushes the clip
+/* row off the bottom.
+/* Loaded after style.css (see index.html), so everything here overrides the
+/* base composition rather than fighting it on specificity.
+/* ---------------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  /* the character's canvas is overscanned well past its card so tall poses can
+     protrude; that overscan is what runs out of screen first, so it is what
+     gives way rather than the character's size relative to its panel */
+  .char-card-canvas-wrap canvas {
+    top: -44%;
+    height: 132%;
+  }
+
+  :root {
+    /* less headroom reserved above the row, to match */
+    --card-overscan: calc(var(--card-h) * 0.5);
+  }
+
+  /* the copy is what overflows the panel, so the copy is what shrinks */
+  .detail-title {
+    font-size: clamp(32px, 4.4vw, 48px);
+  }
+
+  .detail-description {
+    font-size: 15px;
+  }
+
+  .detail-movie {
+    font-size: 16px;
+  }
+
+  /* The logo moves above the character's name rather than sitting beside it.
+     That hands the whole row width to the description -- which is the thing
+     actually short of room here -- and reads as a label on the character
+     rather than as a separate element competing with the title.
+
+     The row becomes a column and the badge is ordered to the front of it. It
+     is much smaller than on desktop: above a title it is a caption, not a
+     feature, and the per-movie logoScale multiplies whatever base it is given,
+     so the base has to come down to compensate. */
+  .detail-info {
+    flex-direction: column;
+    align-items: flex-start;
+    /* generous because the logo's scale is a transform: it draws past its own
+       layout box, so a gap measured against that box is smaller than it looks
+       on paper. .detail-info is a two-item column here -- the badge and the
+       text -- so this is precisely the space under the logo and nothing else. */
+    gap: 42px;
+  }
+
+  .detail-badge {
+    order: -1;
+    width: clamp(100px, 12.6vw, 142px);
+    height: auto;
+    justify-content: flex-start;
+  }
+
+  .movie-logo {
+    /* grows rightward off the title's left edge, so it stays aligned with the
+       name underneath it however each movie's scale is tuned */
+    transform-origin: left center;
+  }
+
+  .detail-text {
+    max-width: none;
+  }
+
+  /* the mascot is 54%x118% of the body by default, which on a tall tablet is
+     an enormous canvas for a figure that has to share the screen with a panel */
+  .detail-mascot-canvas {
+    width: 46%;
+    height: 96%;
+    top: calc(-4% + var(--detail-shift-y, 0%));
+  }
+
+  .clip-card {
+    width: clamp(132px, 19vw, 200px);
+    height: clamp(84px, 12vw, 126px);
+  }
+
+  /* The clip row must never be the thing that gives. .detail-clips carries
+     min-height:0, which lets a flex child shrink past its own contents -- so
+     when the panel ran short the row compressed and the cards were clipped
+     from below, 23px of them at 1024x768, rather than anything visibly
+     overflowing. Pinning it means the panel's spare height is negotiated
+     everywhere else, and the cards are always whole. */
+  .detail-clips {
+    flex-shrink: 0;
+  }
+
+  /* the clip row sat close to the bottom edge, and there is slack in the
+     middle of the panel to pay for lifting it off -- the info block is at the
+     top and space-between opens the rest */
+  .detail-panel {
+    padding-bottom: clamp(38px, 5vw, 64px);
+  }
+}
+
+/* A short tablet, specifically -- 1024x768 and the like. Width alone does not
+   describe this: 768x1024 has the same width budget and a third more height,
+   and fits fine. What runs out here is vertical room, so the vertical rhythm
+   is what gives. Measured at 1024x768 the clip row still sat 24px below the
+   fold after the block above. */
+@media (max-width: 1100px) and (max-height: 820px) {
+  .detail-panel {
+    padding: clamp(20px, 3vw, 40px) clamp(26px, 5vw, 70px) clamp(30px, 4.4vw, 52px);
+  }
+
+  .detail-clips {
+    gap: 10px;
+  }
+
+  /* short enough that the row still fits once the deeper bottom padding is
+     taken out of the panel -- this is the height that pays for that space */
+  .clip-card {
+    height: clamp(58px, 7.6vw, 80px);
+  }
+
+  .detail-panel {
+    gap: clamp(14px, 2vh, 24px);
+  }
+
+  .detail-description {
+    font-size: 14px;
+  }
+}

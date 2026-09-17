@@ -59,18 +59,43 @@ function detailFraming(character) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-// Top-left grows INTO something -- the detail panel's big sweep -- so it is
-// carried through the whole move.
-const GROWING_CORNERS = ["borderTopLeftRadius"];
-// Bottom-left simply rides top-left the whole way, rounding the left edge with
-// it and never straightening. It gets away with that because the panel's
-// bottom edge overshoots the viewport -- see PANEL_BOTTOM_OVERSHOOT.
-const JOINING_CORNER = "borderBottomLeftRadius";
-// The right pair simply resolve to a square 0. Straightening early reads as
-// the panel losing its shape before it has landed, so they hold the card's own
-// radius until the box is essentially in position.
-const LATE_CORNERS = ["borderTopRightRadius", "borderBottomRightRadius"];
-const CORNERS = [...GROWING_CORNERS, JOINING_CORNER, ...LATE_CORNERS];
+const CORNERS = [
+  "borderTopLeftRadius",
+  "borderBottomLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomRightRadius",
+];
+
+// Which side the panel's big sweep is on is a stylesheet decision: the rail
+// sits on the left on desktop, and on the right on a phone, where it is the
+// one thing here you actually operate and a thumb has to reach it. So the
+// corners are given their roles by reading the resting panel rather than being
+// named -- flip the panel in CSS and the morph mirrors itself.
+//
+//  - the top corner with the radius grows INTO the panel's signature sweep and
+//    is carried through the whole move, because it is the one the eye follows;
+//  - the bottom corner beneath it simply rides along, rounding that whole edge
+//    with it and never straightening -- which it gets away with only because
+//    the panel's bottom overshoots the viewport (see PANEL_BOTTOM_OVERSHOOT);
+//  - the far pair resolve to a square 0, and hold the card's own radius until
+//    the box has essentially landed. Straightening early reads as the panel
+//    losing its shape before it arrives.
+function cornerRoles(target) {
+  const onLeft =
+    (parseFloat(target.borderTopLeftRadius) || 0) >=
+    (parseFloat(target.borderTopRightRadius) || 0);
+  return onLeft
+    ? {
+        growing: ["borderTopLeftRadius"],
+        joining: "borderBottomLeftRadius",
+        late: ["borderTopRightRadius", "borderBottomRightRadius"],
+      }
+    : {
+        growing: ["borderTopRightRadius"],
+        joining: "borderBottomRightRadius",
+        late: ["borderTopLeftRadius", "borderBottomLeftRadius"],
+      };
+}
 
 // where along the flight the corners that end square start squaring off
 const CORNER_SPLIT = 0.66;
@@ -123,6 +148,7 @@ function buildCharacterCard(character) {
   canvasWrap.className = "char-card-canvas-wrap";
   // horizontal nudge for poses that should spill off the card (Rosetta's gown)
   canvasWrap.style.setProperty("--shift-x", `${character.shiftX ?? 0}%`);
+  canvasWrap.style.setProperty("--card-nudge", `${character.cardNudge ?? 0}px`);
   canvasWrap.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
   canvasWrap.style.setProperty("--aura-size", AURA.blur);
   const canvas = document.createElement("canvas");
@@ -218,12 +244,12 @@ function buildGridView() {
     </div>
     <div class="pager">
       <button class="pager-btn" id="prevBtn" type="button" aria-label="Previous">
-        <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M8 0L0 7L8 14Z" fill="currentColor"/></svg>
+        <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true"><path d="M7.5 1.5L2 7.5L7.5 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Prev
       </button>
       <button class="pager-btn" id="nextBtn" type="button" aria-label="Next">
         Next
-        <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M0 0L8 7L0 14Z" fill="currentColor"/></svg>
+        <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true"><path d="M1.5 1.5L7 7.5L1.5 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
   `;
@@ -530,6 +556,7 @@ function buildMascotCanvas(character) {
   canvas.setAttribute("aria-hidden", "true");
   canvas.style.setProperty("--detail-shift-x", `${character.detailShiftX ?? 0}%`);
   canvas.style.setProperty("--detail-shift-y", `${character.detailShiftY ?? 0}%`);
+  canvas.style.setProperty("--mobile-nudge", `${character.mobileNudge ?? 0}px`);
   // same accent halo the cards carry, so the character doesn't arrive here
   // permanently stripped of it. Affordable on this canvas and not on the
   // flight's precisely because this one is static -- the blur rasterises once
@@ -1397,11 +1424,12 @@ function flyToDetail(character, cardCanvas) {
     // follows, on screen the whole way. Growing it in step with the box, on
     // the box's own ease, makes the radius read as part of the same expansion
     // rather than something that happens to the panel after it arrives.
+    const roles = cornerRoles(panelToCorners);
     const pick = (corners) =>
       Object.fromEntries(corners.map((corner) => [corner, panelToCorners[corner]]));
 
     gsap.to(panel, {
-      ...pick(GROWING_CORNERS),
+      ...pick(roles.growing),
       duration: FLIGHT_SECONDS,
       ease: "power3.inOut",
     });
@@ -1411,7 +1439,7 @@ function flyToDetail(character, cardCanvas) {
     // has landed. They hold the card's own radius and only square off once the
     // box is essentially in position.
     gsap.to(panel, {
-      ...pick(LATE_CORNERS),
+      ...pick(roles.late),
       duration: FLIGHT_SECONDS * (1 - CORNER_SPLIT),
       ease: "power2.inOut",
       delay: FLIGHT_SECONDS * CORNER_SPLIT,
@@ -1421,9 +1449,10 @@ function flyToDetail(character, cardCanvas) {
     // can simply BE top-left for the whole move: the two rise together and the
     // entire left edge rounds as the panel opens, with no second phase and no
     // switch of behaviour to hide.
-    const fromTopLeft = parseFloat(panelFromCorners.borderTopLeftRadius) || 0;
-    const toTopLeft = parseFloat(panelToCorners.borderTopLeftRadius) || 0;
-    const joiningCorner = (base) => lerp(fromTopLeft, toTopLeft, base);
+    const [growingCorner] = roles.growing;
+    const fromGrowing = parseFloat(panelFromCorners[growingCorner]) || 0;
+    const toGrowing = parseFloat(panelToCorners[growingCorner]) || 0;
+    const joiningCorner = (base) => lerp(fromGrowing, toGrowing, base);
 
     // ...which only works because the bottom edge outruns the viewport. The
     // corner's curve occupies the last `radius` pixels of the left edge, so
@@ -1431,7 +1460,7 @@ function flyToDetail(character, cardCanvas) {
     // out of sight and the edge reads as straight all the way down. The
     // stylesheet's resting box -- square, ending exactly at the fold -- looks
     // identical, which is what makes the hand-off on landing invisible.
-    const bottomTo = panelTo.bottom + toTopLeft + PANEL_BOTTOM_OVERSHOOT;
+    const bottomTo = panelTo.bottom + toGrowing + PANEL_BOTTOM_OVERSHOOT;
 
     // Growing past the fold would otherwise drag the panel's contents down
     // with it, since they are laid out with space-between against whatever
@@ -1466,7 +1495,7 @@ function flyToDetail(character, cardCanvas) {
         paddingBottom: `${basePadBottom + belowFold}px`,
         // driven here rather than as its own tween so it can track top-left
         // exactly -- see joiningCorner
-        [JOINING_CORNER]: `${joiningCorner(base)}px`,
+        [roles.joining]: `${joiningCorner(base)}px`,
       });
     };
 

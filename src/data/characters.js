@@ -66,6 +66,15 @@ export function getMovie(title) {
 export const characters = [
   {
     id: "rosetta",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -39,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -23,
     name: "Rosetta",
     movie: "Tinkerbell",
     description:
@@ -83,6 +92,15 @@ export const characters = [
   },
   {
     id: "sadness",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -23,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -13,
     name: "Sadness",
     movie: "Inside Out",
     description:
@@ -101,6 +119,15 @@ export const characters = [
   },
   {
     id: "disgust",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -1,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -13,
     name: "Disgust",
     movie: "Inside Out",
     description:
@@ -118,6 +145,15 @@ export const characters = [
   },
   {
     id: "judy",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: 11,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -11,
     name: "Judy",
     movie: "Zootopia",
     description:
@@ -135,6 +171,15 @@ export const characters = [
   },
   {
     id: "moana",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -4,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -34,
     name: "Moana",
     movie: "Moana",
     description:
@@ -152,6 +197,15 @@ export const characters = [
   },
   {
     id: "vanellope",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -1,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: 13,
     name: "Vanellope",
     movie: "Wreck-It Ralph",
     description:

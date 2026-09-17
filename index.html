@@ -34,7 +34,11 @@
          waiting for the JS bundle to load and request it itself -->
     <link rel="preload" href="/models/rosetta.glb" as="fetch" crossorigin />
 
+    <!-- order matters: each overrides the one before at its own breakpoint,
+         so the cascade does the work rather than specificity -->
     <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="/src/tablet.css" />
+    <link rel="stylesheet" href="/src/mobile.css" />
   </head>
   <body>
     <div class="page">

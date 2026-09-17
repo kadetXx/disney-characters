@@ -1,4 +1,8 @@
 :root {
+  /* Where the detail panel's top edge sits. The character is placed against
+     this line rather than against the viewport, so a short window moves the
+     two together instead of sliding the character down the panel. */
+  --panel-top: clamp(90px, 22vh, 280px);
   --color-bg: #ffffff;
   --color-ink: #14141a;
   --color-muted: #9a9aa3;
@@ -481,8 +485,10 @@ img {
 
 .detail-panel {
   position: absolute;
-  /* reference: panel starts ~30% down the viewport and ~14% in from the left */
-  top: clamp(90px, 22vh, 280px);
+  /* reference: panel starts ~30% down the viewport and ~14% in from the left.
+     Named because the character is positioned against this edge, not against
+     the viewport -- see --panel-top below. */
+  top: var(--panel-top);
   left: var(--detail-inset);
   right: 0;
   bottom: 0;
@@ -711,57 +717,7 @@ img {
 /* Responsive                                                       */
 /* ---------------------------------------------------------------- */
 
-@media (max-width: 720px) {
-  :root {
-    --detail-inset: clamp(90px, 26vw, 160px);
-  }
 
-  .search-input::placeholder {
-    color: transparent;
-  }
-
-  .search {
-    width: 42px;
-    height: 42px;
-    padding: 0;
-    justify-content: center;
-    border-radius: 100%;
-  }
-
-  .search-input {
-    display: none;
-  }
-
-  .menu-btn span {
-    display: none;
-  }
-
-  .detail-rail {
-    left: 0;
-    width: var(--detail-inset);
-  }
-
-  .detail-panel {
-    /* narrower inset on small screens; the rail follows via --detail-inset */
-    left: var(--detail-inset);
-    border-radius: clamp(28px, 8vw, 40px) 0 0 0;
-  }
-
-  .detail-mascot-canvas {
-    left: 12px;
-    width: clamp(140px, 32vw, 200px);
-    height: clamp(160px, 36vw, 220px);
-  }
-
-  .detail-info,
-  .detail-clips {
-    padding-left: 0;
-  }
-
-  .detail-badge {
-    display: none;
-  }
-}
 
 /* ---------------------------------------------------------------- */
 /* Switching between expanded characters                            */
