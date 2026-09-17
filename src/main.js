@@ -254,12 +254,15 @@ function buildGridView() {
     </div>
     <div class="pager">
       <button class="pager-btn" id="prevBtn" type="button" aria-label="Previous">
-        <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true"><path d="M7.5 1.5L2 7.5L7.5 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <!-- the arms run into a curved apex rather than meeting at a point:
+             stroke-linejoin:round only rounds by half the stroke width, which
+             at 2px is a 1px corner and still reads as a hard V -->
+        <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true"><path d="M7.5 1.5L3.4 6Q1.5 7.5 3.4 9L7.5 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Prev
       </button>
       <button class="pager-btn" id="nextBtn" type="button" aria-label="Next">
         Next
-        <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true"><path d="M1.5 1.5L7 7.5L1.5 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true"><path d="M1.5 1.5L5.6 6Q7.5 7.5 5.6 9L1.5 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
   `;

@@ -34,6 +34,10 @@
   --card-h: min(calc(var(--card-w) * 1.656), 72vh);
   --card-gap: clamp(18px, 3.8vw, 85px);
   --card-overscan: calc(var(--card-h) * 0.72);
+  /* room below the card for its own drop shadow, which reaches 38px down
+     (18px offset + 30px blur - 10px spread). The track clips, so without this
+     the shadow is sliced off square at its bottom edge. */
+  --card-shadow-room: 44px;
 
   color-scheme: light;
 }
@@ -214,6 +218,11 @@ img {
   overflow-x: hidden;
   padding-top: var(--card-overscan);
   margin-top: calc(var(--card-overscan) * -1);
+  /* the same trick along the bottom edge, for the cards' drop shadow rather
+     than the characters' heads -- a scroll container clips both axes, so the
+     shadow needs to be inside the padding box to survive */
+  padding-bottom: var(--card-shadow-room);
+  margin-bottom: calc(var(--card-shadow-room) * -1);
   /* CSS snapping would fight the JS paging for the final resting position */
   scroll-snap-type: none;
   scroll-behavior: smooth;
