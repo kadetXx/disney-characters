@@ -154,7 +154,7 @@
        height that the character wants. */
     justify-content: flex-end;
     gap: 18px;
-    padding-bottom: 1.5rem;
+    padding-bottom: 2rem;
   }
 
   /* <p>'s UA margin, 1em top and bottom, between title and description --
@@ -182,9 +182,32 @@
     margin-top: 4px;
   }
 
-  /* smaller radius: 18px on a card this size reads as a pill, not a frame */
+  /* The card's width and height were clamped independently, so on a phone they
+     settled on different clamps -- and on a short phone the tablet sheet's
+     max-height block replaced the height again -- leaving the frame 2.28:1 at
+     374x665 and 1.57:1 at 390x844. The poster is cover-cropped to fill it, so
+     the same still came out a different shape on different phones. Ratio
+     first, height derived from it: every screen now crops the same frame. */
   .clip-card {
-    border-radius: 7px;
+    width: clamp(128px, 40vw, 190px);
+    height: auto;
+    aspect-ratio: 16 / 9;
+    max-width: 100%;
+    /* 18px on a card this size reads as a pill, not a frame */
+    border-radius: 12px;
+  }
+
+  /* The track bleeds out past the panel's side padding so a partial card is
+     sliced off flush with the panel's edge -- the "there's more, scroll" hint.
+     Base takes that bleed from its own clamp, which bottoms out at 28px while
+     the panel's padding bottoms out at 26px, so on a phone the scrollport
+     finished 2px proud of the panel. The panel deliberately does not clip
+     (the character overlaps it on every side), so those 2px showed as the
+     cards spilling past the coloured edge. Tied to the padding itself here,
+     the two cannot drift apart at any phone width. */
+  .clips-track {
+    margin-right: calc(-1 * var(--panel-pad-x));
+    padding-right: var(--panel-pad-x);
   }
 
   .clip-play {

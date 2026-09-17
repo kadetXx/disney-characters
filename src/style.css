@@ -3,6 +3,10 @@
      this line rather than against the viewport, so a short window moves the
      two together instead of sliding the character down the panel. */
   --panel-top: clamp(90px, 22vh, 280px);
+  /* The detail panel's side padding. Named because the clip track has to bleed
+     out by exactly this much to be cut off flush with the panel's edge, and
+     the panel does not clip -- so any drift between the two is visible. */
+  --panel-pad-x: clamp(26px, 5vw, 70px);
   --color-bg: #ffffff;
   --color-ink: #14141a;
   --color-muted: #9a9aa3;
@@ -493,7 +497,7 @@ img {
   right: 0;
   bottom: 0;
   border-radius: clamp(64px, 11vw, 180px) 0 0 0;
-  padding: clamp(26px, 4vw, 60px) clamp(26px, 5vw, 70px);
+  padding: clamp(26px, 4vw, 60px) var(--panel-pad-x);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
