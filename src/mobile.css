@@ -226,7 +226,14 @@
      anywhere from overlapping the name to floating well clear of it. This
      evens that out -- see cardNudge in the character data. */
   .char-card-canvas-wrap canvas {
-    top: calc(-44% + var(--card-nudge, 0px));
+    top: calc(-51% + var(--card-nudge, 0px));
+  }
+
+  /* 28px between three items pushed them most of the way to the middle of the
+     bar, which read as centred-ish rather than as a group sitting at the left
+     edge. Tighter, so they hold together as one cluster. */
+  .social-links {
+    gap: 18px;
   }
 
 }
