@@ -1223,7 +1223,22 @@ function switchDetail(characterId, direction = 1) {
     SWITCH_TEXT_SECONDS * 0.8
   );
 
-  tl.to(oldClips, { opacity: 0, y: -SWITCH_CLIPS_DROP * dir, duration: SWITCH_TEXT_SECONDS, ease: "power2.in" }, 0);
+  // Exactly the copy's exit, plus the travel. The two already shared a start,
+  // a duration and an ease, so they were leaving together -- but the copy
+  // scaled away while the clips only slid, and two different treatments read as
+  // two separate departures. The scale is what makes them one. They share
+  // transform-origin: left center (.switch-pane), so it pulls the same way.
+  tl.to(
+    oldClips,
+    {
+      opacity: 0,
+      scale: SWITCH_TEXT_SCALE,
+      y: -SWITCH_CLIPS_DROP * dir,
+      duration: SWITCH_TEXT_SECONDS,
+      ease: "power2.in",
+    },
+    0
+  );
   // in from BELOW, not down from above: the whole swap runs one way up the
   // screen, so the clip row arriving has to travel with the model rather than
   // against it
