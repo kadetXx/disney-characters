@@ -25,17 +25,32 @@ const MOVIE_BASE = import.meta.env.BASE_URL + "movies/";
 // Artwork is keyed by MOVIE, not by character: Sadness and Disgust are both
 // Inside Out, and should share one rather than carrying duplicates.
 //
-// Everything here is a placeholder, sized and shaped for the slot it fills --
-// `logo` wide and transparent, `clips` 16:9. Dropping in the real thing is a
-// matter of replacing the file at the same path, or pointing these at new
-// ones; nothing else has to change. `clips[].src` is the video that plays on
-// click, and is the shared placeholder until there are real ones.
-const PLACEHOLDER_CLIP = import.meta.env.BASE_URL + "clip-placeholder.mp4";
+// Clips are YouTube trailers, played in place. Only the 11-character video id
+// is stored: the poster is YouTube's own thumbnail for it, so there is no
+// artwork to source, host or keep in sync with the video -- change the id and
+// the still changes with it.
+//
+// Every id below was verified rather than trusted: oEmbed resolves it, and the
+// watch page reports playableInEmbed:true. That second check is the one that
+// matters and is easy to skip -- six otherwise-perfect candidates, including
+// the top "official" hit for Inside Out, Zootopia and the Ralph/Vanellope
+// clip, resolve fine but refuse to embed, and would have been three silently
+// dead cards. If you swap an id, re-run both checks.
+// maxresdefault is 1280x720 and mqdefault 320x180 -- both true 16:9, so they
+// fill the card without bars. hqdefault, the obvious choice, is 480x360: a 4:3
+// frame with the letterboxing baked into the pixels.
+//
+// maxres does not exist for every video (2 of the 15 below), and YouTube
+// answers a missing one with a 120x90 grey placeholder rather than a clean
+// error -- so the fallback is chosen on the loaded image's SIZE, not on an
+// error event. See buildClips.
+const YT_THUMB = (id) => `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+const YT_THUMB_FALLBACK = (id) => `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
 
 // logoFile is spelled out rather than derived, because the real logos arrive
 // in whatever format they were found in -- webp, png, svg -- and there is no
 // reason to re-encode them just to satisfy a naming rule.
-function movieAssets(slug, logoFile = `${slug}-logo.svg`, logoScale = 1) {
+function movieAssets(slug, logoFile, logoScale, youtubeIds) {
   return {
     // how much bigger than the slot this particular logo wants to be drawn.
     // Tuned per movie by eye -- a wordmark reads at 1, a lockup carrying a
@@ -44,19 +59,45 @@ function movieAssets(slug, logoFile = `${slug}-logo.svg`, logoScale = 1) {
     // one logo per movie. Wider than tall, transparent, and light enough to
     // read, because the panel behind it is always a dark character gradient.
     logo: MOVIE_BASE + logoFile,
-    clips: [1, 2, 3].map((n) => ({
-      poster: `${MOVIE_BASE}${slug}-clip-${n}.svg`,
-      src: PLACEHOLDER_CLIP,
+    clips: youtubeIds.map((youtubeId) => ({
+      youtubeId,
+      poster: YT_THUMB(youtubeId),
+      posterFallback: YT_THUMB_FALLBACK(youtubeId),
     })),
   };
 }
 
 export const movies = {
-  "Tinkerbell": movieAssets("tinkerbell", "tinkerbell-logo.png", 1.5),
-  "Inside Out": movieAssets("inside-out", "inside-out-logo.png", 1.3),
-  "Zootopia": movieAssets("zootopia", "zootopia-logo.png", 1.4),
-  "Moana": movieAssets("moana", "moana-logo.png", 1.8),
-  "Wreck-It Ralph": movieAssets("wreck-it-ralph", "wreck-it-ralph-logo.webp", 1.3),
+  "Tinkerbell": movieAssets("tinkerbell", "tinkerbell-logo.png", 1.5, [
+    "B2DRnfYqBL8", // Secret of the Wings -- Disney UK
+    "Et4zsoUNb_0", // The Pirate Fairy -- Disney UK
+    "5ztzhchMcsY", // The Great Fairy Rescue -- Disney UK
+  ]),
+  "Inside Out": movieAssets("inside-out", "inside-out-logo.png", 1.3, [
+    // The emotions are drawn emissive -- Joy is literally a light source -- so
+    // on a darkened, graded card their rim light becomes the brightest thing in
+    // the row and pulls the eye. Frames are picked for low blown-out highlights
+    // rather than by scene: measuring the share of pixels above 235 separates
+    // them cleanly (8.8% for Joy at Long Term Memory, 0.4% for these two).
+    "8XInTTCydDQ", // four emotions at the console -- moving house
+    "aOE92_DnZ_0", // Disgust at the console
+    "nEUzQ7yL9A0", // Get To Know Your Emotions
+  ]),
+  "Zootopia": movieAssets("zootopia", "zootopia-logo.png", 1.4, [
+    "Vsjghjdt7GY", // "Judy Hopps Leaves the Carrot Farm" clip -- Disney
+    "AB1BxqB8kxA", // Flash the sloth at the DMV
+    "w9rAB4UTtlQ", // Night Howlers scene
+  ]),
+  "Moana": movieAssets("moana", "moana-logo.png", 1.8, [
+    "wkAQAV1jBTs", // "The Ocean Insists" scene
+    "x6WlZbeaNHE", // Trailer 2
+    "zjHYnmH4GbE", // "You're Welcome" song scene
+  ]),
+  "Wreck-It Ralph": movieAssets("wreck-it-ralph", "wreck-it-ralph-logo.webp", 1.3, [
+    "2EFey5M_G8A", // Ralph meets Vanellope
+    "0dEFNCCVDos", // Ralph and Vanellope make a deal
+    "VFHixDtU0to", // Vanellope in Sugar Rush
+  ]),
 };
 
 export function getMovie(title) {
@@ -66,6 +107,15 @@ export function getMovie(title) {
 export const characters = [
   {
     id: "rosetta",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -39,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -23,
     name: "Rosetta",
     movie: "Tinkerbell",
     description:
@@ -83,6 +133,15 @@ export const characters = [
   },
   {
     id: "sadness",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -23,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -13,
     name: "Sadness",
     movie: "Inside Out",
     description:
@@ -101,6 +160,15 @@ export const characters = [
   },
   {
     id: "disgust",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -1,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -13,
     name: "Disgust",
     movie: "Inside Out",
     description:
@@ -118,6 +186,15 @@ export const characters = [
   },
   {
     id: "judy",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: 11,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -11,
     name: "Judy",
     movie: "Zootopia",
     description:
@@ -135,6 +212,15 @@ export const characters = [
   },
   {
     id: "moana",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -4,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: -34,
     name: "Moana",
     movie: "Moana",
     description:
@@ -152,6 +238,15 @@ export const characters = [
   },
   {
     id: "vanellope",
+    // px to lift this character on its card on mobile, so its lowest point
+    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // foot overlapped the title by 11px; Judy floated 39px clear of it.
+    cardNudge: -1,
+    // px to drop this character so its feet land on the panel\'s top edge
+    // on mobile. Measured per character: the framing that suits each pose on
+    // desktop leaves the feet anywhere from 14px below that edge to 33px above
+    // it, and on a phone the panel edge is the ground they stand on.
+    mobileNudge: 13,
     name: "Vanellope",
     movie: "Wreck-It Ralph",
     description:

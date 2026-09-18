@@ -1,4 +1,12 @@
 :root {
+  /* Where the detail panel's top edge sits. The character is placed against
+     this line rather than against the viewport, so a short window moves the
+     two together instead of sliding the character down the panel. */
+  --panel-top: clamp(90px, 22vh, 280px);
+  /* The detail panel's side padding. Named because the clip track has to bleed
+     out by exactly this much to be cut off flush with the panel's edge, and
+     the panel does not clip -- so any drift between the two is visible. */
+  --panel-pad-x: clamp(26px, 5vw, 70px);
   --color-bg: #ffffff;
   --color-ink: #14141a;
   --color-muted: #9a9aa3;
@@ -26,6 +34,10 @@
   --card-h: min(calc(var(--card-w) * 1.656), 72vh);
   --card-gap: clamp(18px, 3.8vw, 85px);
   --card-overscan: calc(var(--card-h) * 0.72);
+  /* room below the card for its own drop shadow, which reaches 38px down
+     (18px offset + 30px blur - 10px spread). The track clips, so without this
+     the shadow is sliced off square at its bottom edge. */
+  --card-shadow-room: 44px;
 
   color-scheme: light;
 }
@@ -68,6 +80,122 @@ img {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- */
+/* The loading gate                                                 */
+/* ---------------------------------------------------------------- */
+
+/* A plain white sheet over the whole page -- nav included -- carrying the
+   Disney mark, which fills with ink as the characters arrive.
+
+   Nothing crossfades with anything: the mark fills, then travels up into the
+   nav's own logo slot, and only once it has landed does the page come in
+   underneath it. The screen is plain white for the whole handover, so the
+   loader is never on screen at the same time as the content it was covering.
+   See src/loading.js for the order.
+
+   The page is laid out beneath the sheet from the first moment even so -- the
+   cards measure themselves and their characters draw into real canvases (see
+   syncEdgeScale, mountNearby) -- it is only hidden. Building it at the moment
+   it is uncovered would put a full layout in the middle of the reveal. */
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  /* How much of the mark is inked, 0 to 1. src/loading.js owns this from the
+     moment the bundle runs; the value here is what the mark shows until then,
+     a token amount so the sheet reads as having started rather than as an
+     empty white page with a faint smudge on it. */
+  --progress: 0.06;
+}
+
+/* Hidden, not unbuilt. Driven to full by the reveal in src/loading.js, which
+   also takes this class off at the end -- both land on 1, so the handover
+   between the two is not a change. */
+.is-loading .page {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The nav's own mark stays out of the way until the loader's has flown into
+   its place and been taken away. They are the same artwork at the same size in
+   the same spot, so the swap is invisible -- but only if they are never both
+   on screen, and never neither. */
+.is-loading .logo-mark {
+  visibility: hidden;
+}
+
+/* Both layers carry the SAME mask at the SAME box size, so the glyphs line up
+   exactly and the fill can be revealed by clipping alone. Anything that
+   changed the box -- animating width, say -- would rescale the mask with it
+   and the ink would not sit in the letters. */
+/* The aspect ratio is the mark's own, straight off disney.svg, and it matches
+   what the nav's <img> derives from `height: 30px; width: auto`. That is what
+   lets the mark land on the logo's box without being stretched to fit it.
+
+   No will-change: the flight animates this box's width and position rather
+   than transforming it (see flightToLogo), because the mask has to be redrawn
+   at each size for the mark to arrive as crisp as the logo it replaces --
+   promoting it to its own layer would be asking for exactly the cached raster
+   that causes. */
+.loading-mark {
+  position: relative;
+  width: clamp(168px, 24vw, 340px);
+  aspect-ratio: 1000 / 425.6;
+}
+
+.loading-mark-ghost,
+.loading-mark-fill {
+  position: absolute;
+  inset: 0;
+  -webkit-mask: url(/disney.svg) no-repeat center / contain;
+  mask: url(/disney.svg) no-repeat center / contain;
+}
+
+/* The unfilled mark: quiet, but enough to hold the shape the ink is arriving
+   into -- and breathing, because it is the only thing on this screen that can.
+   A character's decode takes the main thread for seconds at a time, which is
+   most of a cold load; the fill is driven from that thread and so it genuinely
+   cannot move for those seconds, and a progress bar frozen that long reads as
+   a hang. An opacity animation runs on the compositor instead, so it keeps
+   going through a blocked main thread and says the one true thing available:
+   still working. will-change is what gets it its own layer and therefore that
+   treatment -- and it is safe here in a way it would not be on the mark
+   itself, because this layer's box never changes size, and by the time the
+   flight resizes anything the fill has covered it completely. */
+.loading-mark-ghost {
+  background: #dfdfe6;
+  animation: loading-breathe 1.9s ease-in-out infinite;
+  will-change: opacity;
+}
+
+@keyframes loading-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-mark-ghost {
+    animation: none;
+  }
+}
+
+/* Black, deliberately not --color-ink: this ends the reveal sitting exactly on
+   top of the nav's <img> of disney.svg, whose paths carry no fill of their own
+   and so render pure black. Anything else here and the handover is a colour
+   change, which is the one thing the flight exists to avoid. */
+.loading-mark-fill {
+  background: #000;
+  /* inked from the left, up to --progress. inset() rather than a gradient
+     mask: the edge is meant to be a clean wipe across the letters, and a
+     second mask would have to be composited with the first. */
+  clip-path: inset(0 calc(100% - var(--progress) * 100%) 0 0);
 }
 
 /* Nav */
@@ -206,6 +334,11 @@ img {
   overflow-x: hidden;
   padding-top: var(--card-overscan);
   margin-top: calc(var(--card-overscan) * -1);
+  /* the same trick along the bottom edge, for the cards' drop shadow rather
+     than the characters' heads -- a scroll container clips both axes, so the
+     shadow needs to be inside the padding box to survive */
+  padding-bottom: var(--card-shadow-room);
+  margin-bottom: calc(var(--card-shadow-room) * -1);
   /* CSS snapping would fight the JS paging for the final resting position */
   scroll-snap-type: none;
   scroll-behavior: smooth;
@@ -320,7 +453,12 @@ img {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: clamp(38px, 6vh, 78px) var(--nav-pad-x) clamp(44px, 7vh, 86px);
+  /* The grid is bottom-aligned, so height taken out of here is height the
+     carousel gets -- the cards grow and sit lower. Trimmed through the vh term
+     and the ceiling rather than the floors, because small screens are already
+     pinned to those floors: this takes ~24px off a desktop and ~5px off a
+     phone, which is where the slack actually was. */
+  padding: clamp(38px, 4.8vh, 62px) var(--nav-pad-x) clamp(44px, 5.6vh, 70px);
   flex-shrink: 0;
 }
 
@@ -481,13 +619,15 @@ img {
 
 .detail-panel {
   position: absolute;
-  /* reference: panel starts ~30% down the viewport and ~14% in from the left */
-  top: clamp(90px, 22vh, 280px);
+  /* reference: panel starts ~30% down the viewport and ~14% in from the left.
+     Named because the character is positioned against this edge, not against
+     the viewport -- see --panel-top below. */
+  top: var(--panel-top);
   left: var(--detail-inset);
   right: 0;
   bottom: 0;
   border-radius: clamp(64px, 11vw, 180px) 0 0 0;
-  padding: clamp(26px, 4vw, 60px) clamp(26px, 5vw, 70px);
+  padding: clamp(26px, 4vw, 60px) var(--panel-pad-x);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -627,6 +767,11 @@ img {
 .clips-track {
   display: flex;
   flex-direction: row;
+  /* not the default stretch: stretch sets a definite height on every card,
+     which beats aspect-ratio, so whenever the row was even slightly shorter
+     than 16:9 wanted, the cards were quietly squashed to fit it (1.817 on
+     desktop) and the player letterboxed the video back to shape inside them */
+  align-items: flex-start;
   gap: 20px;
   overflow-x: auto;
   scroll-snap-type: x proximity;
@@ -659,10 +804,20 @@ img {
 .clip-card {
   position: relative;
   width: clamp(150px, 15.5vw, 340px);
-  height: clamp(95px, 9.7vw, 215px);
+  /* 16:9, derived -- never a second clamp. Width and height clamped apart
+     drift out of ratio (this card was 1.598), and everything inside is 16:9:
+     the poster gets cover-cropped to the wrong shape, and the embedded player
+     letterboxes the video with black bars to make up the difference. */
+  height: auto;
+  aspect-ratio: 16 / 9;
   flex-shrink: 0;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.14);
+  /* what the poster is knocked back INTO, so it has to be dark for the poster
+     to read as dark -- a light wash here was undoing the knock-back */
+  background: rgba(0, 0, 0, 0.42);
+  /* keeps the tint overlay blending with the card's own contents rather than
+     reaching through to the panel gradient behind it */
+  isolation: isolate;
   scroll-snap-align: start;
   display: flex;
   align-items: center;
@@ -670,21 +825,22 @@ img {
   overflow: hidden;
 }
 
-.clip-video {
+/* The YouTube embed, added on click and removed on stop. It covers the poster
+   and the play button rather than sitting behind them -- once it exists it is
+   the whole card, and it needs every click for its own controls. */
+.clip-embed {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  /* sits behind the play button, and knocked back so the button stays legible
-     over whatever frame happens to be showing */
-  opacity: 0.65;
-  z-index: 0;
+  border: 0;
+  z-index: 3;
 }
 
 .clip-play {
   position: relative;
-  z-index: 1;
+  /* above the poster and the tint that grades it, below the player */
+  z-index: 2;
   width: 44px;
   height: 44px;
   border-radius: 100%;
@@ -711,57 +867,7 @@ img {
 /* Responsive                                                       */
 /* ---------------------------------------------------------------- */
 
-@media (max-width: 720px) {
-  :root {
-    --detail-inset: clamp(90px, 26vw, 160px);
-  }
 
-  .search-input::placeholder {
-    color: transparent;
-  }
-
-  .search {
-    width: 42px;
-    height: 42px;
-    padding: 0;
-    justify-content: center;
-    border-radius: 100%;
-  }
-
-  .search-input {
-    display: none;
-  }
-
-  .menu-btn span {
-    display: none;
-  }
-
-  .detail-rail {
-    left: 0;
-    width: var(--detail-inset);
-  }
-
-  .detail-panel {
-    /* narrower inset on small screens; the rail follows via --detail-inset */
-    left: var(--detail-inset);
-    border-radius: clamp(28px, 8vw, 40px) 0 0 0;
-  }
-
-  .detail-mascot-canvas {
-    left: 12px;
-    width: clamp(140px, 32vw, 200px);
-    height: clamp(160px, 36vw, 220px);
-  }
-
-  .detail-info,
-  .detail-clips {
-    padding-left: 0;
-  }
-
-  .detail-badge {
-    display: none;
-  }
-}
 
 /* ---------------------------------------------------------------- */
 /* Switching between expanded characters                            */
@@ -820,28 +926,66 @@ html.mesh-mode body::after {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  /* knocked back like the video was, so the play button stays legible over it */
-  opacity: 0.65;
+  /* Knocked back so the play button stays legible over it. Opacity alone only
+     blends the still toward whatever is behind it -- against the card's dark
+     ground that darkens, but trailer stills are bright and it was not enough
+     on its own, so the image is dimmed directly as well.
+
+     Most of the saturation comes out here; what colour the still keeps is
+     supplied by the tint overlay, which is the same for all three cards. */
+  opacity: 0.7;
+  filter: grayscale(0.3) brightness(0.62);
+  z-index: 0;
   transition: opacity 200ms ease;
+}
+
+/* The grade. Blend mode `color` takes hue and saturation from this layer and
+   leaves the still's luminance alone, so the picture keeps all its detail and
+   only its palette is replaced -- three different frames, one colour. */
+.clip-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--clip-tint, transparent);
+  mix-blend-mode: color;
+  /* Half strength: enough that the three stills sit in the same family, not so
+     much that they all become one flat colour. Moves in step with the
+     grayscale above -- draining the colour out and not putting much back is
+     what reads as washed rather than graded. */
+  opacity: 0.25;
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+/* the grade is for the still; the video plays in its own colours */
+.clip-card.is-playing::after {
+  opacity: 0;
 }
 
 .clip-card.is-playing .clip-poster {
   opacity: 0;
 }
 
-/* hidden until played, so a black rectangle never shows through the poster */
-.clip-card .clip-video {
-  opacity: 0;
-}
-
-.clip-card.is-playing .clip-video {
-  opacity: 1;
-}
-
 .clip-card.is-playing .clip-play {
   opacity: 0;
 }
 
+/* only the poster is clickable-looking until it is playing; afterwards the
+   embed is on top and takes the pointer itself */
+.clip-card[role="button"] {
+  cursor: pointer;
+}
+
 .clip-play {
   transition: opacity 200ms ease;
+}
+
+/* The glyph only, not the white disc around it. The triangle occupies about a
+   quarter of its own viewBox, so at the 18px the markup asks for it was a
+   4.5px arrowhead adrift in a 44px circle. Sized here rather than on the
+   element so each breakpoint can set it independently of the disc. */
+.clip-play svg {
+  width: 36px;
+  height: 36px;
 }

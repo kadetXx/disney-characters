@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#ffffff" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' blob:; object-src 'none'; base-uri 'self'"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://i.ytimg.com; frame-src https://www.youtube-nocookie.com; connect-src 'self' blob:; object-src 'none'; base-uri 'self'"
     />
     <title>Disney Characters</title>
 
@@ -34,9 +34,25 @@
          waiting for the JS bundle to load and request it itself -->
     <link rel="preload" href="/models/rosetta.glb" as="fetch" crossorigin />
 
+    <!-- order matters: each overrides the one before at its own breakpoint,
+         so the cascade does the work rather than specificity -->
     <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="/src/tablet.css" />
+    <link rel="stylesheet" href="/src/mobile.css" />
   </head>
   <body>
+    <!-- The loading gate. Written here rather than built by the bundle,
+         because the bundle is what it exists to cover: three.js plus six
+         characters' worth of setup have to load before a single line of
+         src/loading.js can run, and until then this is the only thing that
+         can be on screen. src/loading.js adopts it and lifts it away. -->
+    <div class="loading" id="loading">
+      <div class="loading-mark" id="loadingMark" role="img" aria-label="Loading">
+        <span class="loading-mark-ghost"></span>
+        <span class="loading-mark-fill"></span>
+      </div>
+    </div>
+
     <div class="page">
       <header class="nav">
         <div class="logo">

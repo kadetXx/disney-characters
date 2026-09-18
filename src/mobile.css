@@ -1,0 +1,231 @@
+/* ---------------------------------------------------------------- */
+/* Mobile — 720px and under
+/*
+/* Loaded after tablet.css, so at phone widths both apply and this one wins.
+/* Loaded after style.css (see index.html), so everything here overrides the
+/* base composition rather than fighting it on specificity.
+/* ---------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  :root {
+    --detail-inset: clamp(90px, 26vw, 160px);
+  }
+
+  /* One card per screen, centred.
+     The carousel is paged from JS, and pageOffsets() spreads its pages evenly
+     across the scroll range rather than snapping to cards -- so the pages only
+     land on cards if the card pitch happens to equal the viewport. Setting the
+     gap to whatever is left over after the card makes pitch exactly 100vw,
+     which makes every page exactly one card. The same leftover, halved, is the
+     padding that centres the first and last. */
+  :root {
+    --card-w: min(300px, 76vw);
+    --card-gap: calc(100vw - var(--card-w));
+    --card-h: min(calc(var(--card-w) * 1.656), 62vh);
+  }
+
+  .carousel-track {
+    padding-left: calc(var(--card-gap) / 2);
+    padding-right: calc(var(--card-gap) / 2);
+    scroll-padding-left: calc(var(--card-gap) / 2);
+  }
+
+  .search-input::placeholder {
+    color: transparent;
+  }
+
+  .search {
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 100%;
+  }
+
+  .search-input {
+    display: none;
+  }
+
+  .menu-btn span {
+    display: none;
+  }
+
+  /* The rail crosses to the right on a phone. It is the only thing on this
+     screen you actually operate, and on a phone that means a thumb -- which
+     reaches the right edge and not the left. The panel and its big sweep
+     mirror with it; the flight's corner morph follows automatically, because
+     it reads the roles off the resting panel rather than naming a side (see
+     cornerRoles in main.js). */
+  .detail-rail {
+    left: auto;
+    right: 0;
+    width: var(--detail-inset);
+  }
+
+  .detail-panel {
+    /* narrower inset on small screens; the rail follows via --detail-inset */
+    left: 0;
+    right: var(--detail-inset);
+    border-radius: 0 clamp(44px, 13vw, 72px) 0 0;
+  }
+
+  .detail-mascot-canvas {
+    left: 12px;
+    width: clamp(140px, 32vw, 200px);
+    height: clamp(160px, 36vw, 220px);
+  }
+
+  .detail-info,
+  .detail-clips {
+    padding-left: 0;
+  }
+
+  .detail-badge {
+    display: none;
+  }
+
+  /* Nav: the logo keeps the left, and search and menu pair up on the right.
+     space-between spread all three across the bar, which at this width left
+     the search stranded mid-air between them. */
+  .nav {
+    justify-content: flex-end;
+    gap: 10px;
+    padding-top: 20px;
+  }
+
+  .logo {
+    margin-right: auto;
+  }
+
+  .logo-word {
+    font-size: 16px;
+    font-weight: 300;
+  }
+
+  .logo-mark {
+    height: 24px;
+  }
+
+  .search {
+    width: 36px;
+    height: 36px;
+  }
+
+  .menu-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* the rail only has to carry two vertical names and a chevron, and it was
+     taking a quarter of the screen to do it -- that width goes to the panel */
+  :root {
+    --detail-inset: clamp(58px, 16vw, 96px);
+  }
+
+  /* bigger, and sitting lower so the character reads as standing in the panel
+     rather than hanging off the top of it. The canvas is what scales the
+     character -- the viewer fits the model to whatever box it is given -- so
+     size lives here and nowhere per-character; only the feet line is nudged
+     per pose, via --mobile-nudge. */
+  .detail-mascot-canvas {
+    left: -58px;
+    width: clamp(214px, 96vw, 515px);
+    height: clamp(248px, 110vw, 590px);
+    /* Hung off the panel's top edge, not off the viewport. The canvas is sized
+       in vw, so anchoring it to a viewport percentage let a short window keep
+       the character the same size while sliding it down the panel until its
+       feet reached the title. Against --panel-top the two move together, and
+       the offset is in vw like the canvas, so the head clears the edge by the
+       same slice of the character at every size. */
+    top: calc(
+      var(--panel-top) - 27vw + var(--detail-shift-y, 0%) +
+        var(--mobile-nudge, 0px)
+    );
+  }
+
+  /* The panel itself stays exactly where it was -- its top edge is the line
+     the character stands on, and moving it changes the whole composition. What
+     moves is the content INSIDE it: packed to the bottom rather than the top,
+     so the space freed by the shortened copy and the closed clip gap opens up
+     under the character's feet instead of below the clips. */
+  .detail-panel {
+    /* Packed to the bottom and left there. The panel's bottom corner runs past
+       the fold anyway, so a deep pad here buys nothing visible -- it just eats
+       height that the character wants. */
+    justify-content: flex-end;
+    gap: 18px;
+    padding-bottom: 2rem;
+  }
+
+  /* <p>'s UA margin, 1em top and bottom, between title and description --
+     the column's own gap already spaces them */
+  .detail-movie {
+    margin: 0;
+  }
+
+  /* The copy goes entirely. It was the single biggest consumer of panel height
+     and it is not what anyone is here for -- the character is. Truncating it
+     to three lines still left a paragraph competing for the space, so on a
+     phone the panel carries the name, the movie and the clips, and everything
+     else it was spending height on goes to the character.
+
+     The clip row's own "Clips" heading goes with it: with nothing above it but
+     the title block, the row no longer needs labelling. */
+  .detail-description,
+  .detail-clips-label {
+    display: none;
+  }
+
+  /* the clip row follows the copy directly rather than being pushed to the
+     bottom by space-between -- that push was the gap */
+  .detail-clips {
+    margin-top: 4px;
+  }
+
+  /* The card's width and height were clamped independently, so on a phone they
+     settled on different clamps -- and on a short phone the tablet sheet's
+     max-height block replaced the height again -- leaving the frame 2.28:1 at
+     374x665 and 1.57:1 at 390x844. The poster is cover-cropped to fill it, so
+     the same still came out a different shape on different phones. Ratio
+     first, height derived from it: every screen now crops the same frame. */
+  .clip-card {
+    width: clamp(128px, 40vw, 190px);
+    height: auto;
+    aspect-ratio: 16 / 9;
+    max-width: 100%;
+    /* 18px on a card this size reads as a pill, not a frame */
+    border-radius: 12px;
+  }
+
+  /* The track bleeds out past the panel's side padding so a partial card is
+     sliced off flush with the panel's edge -- the "there's more, scroll" hint.
+     Base takes that bleed from its own clamp, which bottoms out at 28px while
+     the panel's padding bottoms out at 26px, so on a phone the scrollport
+     finished 2px proud of the panel. The panel deliberately does not clip
+     (the character overlaps it on every side), so those 2px showed as the
+     cards spilling past the coloured edge. Tied to the padding itself here,
+     the two cannot drift apart at any phone width. */
+  .clips-track {
+    margin-right: calc(-1 * var(--panel-pad-x));
+    padding-right: var(--panel-pad-x);
+  }
+
+  .clip-play {
+    transform: scale(0.6);
+  }
+
+  /* held at the size it already was here: scale(0.6) above shrinks the glyph
+     along with the disc, so the base sheet's bigger icon would have grown this
+     one too -- and the phone's play button is already the size it should be */
+  .clip-play svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Characters are framed per pose, so on a card their lowest point lands
+     anywhere from overlapping the name to floating well clear of it. This
+     evens that out -- see cardNudge in the character data. */
+  .char-card-canvas-wrap canvas {
+    top: calc(-44% + var(--card-nudge, 0px));
+  }
+}

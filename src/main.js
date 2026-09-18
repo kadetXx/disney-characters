@@ -1,6 +1,7 @@
 import gsap from "gsap";
 import { characters, getCharacter, getMovie, defaultCharacterId } from "./data/characters.js";
 import { createViewer, createRenderLoop, prefetchModel, setMeshMode } from "./three/viewer.js";
+import { gateOn, modelSettled, afterEntrance, onPageIn } from "./loading.js";
 
 // the Google Fonts link is preloaded (not render-blocking) in the HTML head --
 // promote it to an active stylesheet once the module script runs
@@ -24,6 +25,47 @@ const CARD_DISTANCE_SCALE = 2.05;
 const MASCOT_DISTANCE_SCALE = 1.02;
 const FADE_SETTLE_TIMEOUT = 320;
 
+// How the row arrives. The shape of the move is the home cards in
+// ~/Desktop/workstation/personal/kadet.dev (v3) played the other way round --
+// --exit-reach and --exit-stagger in its src/app/globals.css, and the `card-in`
+// keyframe in src/app/(site)/home.css that already plays that exit backwards.
+//
+// The FEEL is this project's own, though: these cards leave on back.in when a
+// character is expanded, and a row that leaves with a spring and returns on a
+// plain decelerating curve is two different rooms. So the curve below is the
+// mirror of CARD_EXIT_EASE rather than the portfolio's cubic-bezier.
+//
+// Longer and decelerating rather than short and accelerating, which is the
+// portfolio's own reasoning for splitting the two: going is getting out of the
+// way and can be brisk, arriving is settling and has to land.
+const CARD_ENTER_SECONDS = 0.42;
+// The exit's back.in(2.2), turned around. Not its number, though: back's
+// overshoot is a SHARE of the distance travelled -- 15.4% at 2.2 -- and the
+// exit only drops a card 84px, so its wind-up is about 13px. The same 2.2 over
+// this move's ~324px would throw each card 50px past its slot and haul it
+// back, which is a different gesture entirely. 1.1 overshoots by 4.5%, so the
+// card sails the same ~13px past and settles: the exit's character, at the
+// exit's actual size on screen.
+const CARD_ENTER_EASE = "back.out(1.1)";
+// Kept off the spring, exactly as the exit keeps its own fade off back.in and
+// for the same reason: an overshooting curve on opacity runs past fully opaque
+// and has to come back down, which on the way IN means a card that arrives,
+// flickers and re-settles. Shorter than the travel too, so a card is solid
+// while it is still moving rather than a ghost sliding into place.
+const CARD_ENTER_FADE = 0.7;
+const CARD_ENTER_FADE_EASE = "power2.out";
+// Each card starts this much after the one to its left, so the row is dealt out
+// rather than arriving as a slab. Twice the exit's 40ms ripple: that one
+// spreads a row that is already in place, while this one has to read as four
+// separate arrivals across a full card's travel.
+const CARD_ENTER_STAGGER = 0.08;
+// How far to the right each card starts, as a share of its own width. The
+// portfolio reaches by one narrow card, ~326px against a 1440 viewport; a card
+// here is ~360px at that width, so this lands on the same distance while
+// staying proportional at the widths where these cards are much smaller.
+const CARD_ENTER_REACH = 0.9;
+const CARD_ENTER_SCALE = 0.94;
+
 const state = {
   view: "grid", // "grid" | "detail"
   detailId: defaultCharacterId,
@@ -33,6 +75,17 @@ const state = {
 function gradientCss(character) {
   const [a, b, c] = character.gradient;
   return `linear-gradient(135deg, ${a} 0%, ${b} 60%, ${c} 100%)`;
+}
+
+// The panel's colour, and the tint its clip stills are graded toward. Three
+// unrelated trailer frames side by side brought three unrelated palettes with
+// them and fought both each other and the panel; toned to one colour they read
+// as a row of three rather than three separate pictures. The middle gradient
+// stop is the panel's dominant tone -- the ends are its highlight and shadow.
+function paintPanel(panel, character) {
+  panel.style.background = gradientCss(character);
+  panel.style.setProperty("--clip-tint", character.gradient[1]);
+  panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
 }
 
 function clearViewers() {
@@ -59,18 +112,43 @@ function detailFraming(character) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-// Top-left grows INTO something -- the detail panel's big sweep -- so it is
-// carried through the whole move.
-const GROWING_CORNERS = ["borderTopLeftRadius"];
-// Bottom-left simply rides top-left the whole way, rounding the left edge with
-// it and never straightening. It gets away with that because the panel's
-// bottom edge overshoots the viewport -- see PANEL_BOTTOM_OVERSHOOT.
-const JOINING_CORNER = "borderBottomLeftRadius";
-// The right pair simply resolve to a square 0. Straightening early reads as
-// the panel losing its shape before it has landed, so they hold the card's own
-// radius until the box is essentially in position.
-const LATE_CORNERS = ["borderTopRightRadius", "borderBottomRightRadius"];
-const CORNERS = [...GROWING_CORNERS, JOINING_CORNER, ...LATE_CORNERS];
+const CORNERS = [
+  "borderTopLeftRadius",
+  "borderBottomLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomRightRadius",
+];
+
+// Which side the panel's big sweep is on is a stylesheet decision: the rail
+// sits on the left on desktop, and on the right on a phone, where it is the
+// one thing here you actually operate and a thumb has to reach it. So the
+// corners are given their roles by reading the resting panel rather than being
+// named -- flip the panel in CSS and the morph mirrors itself.
+//
+//  - the top corner with the radius grows INTO the panel's signature sweep and
+//    is carried through the whole move, because it is the one the eye follows;
+//  - the bottom corner beneath it simply rides along, rounding that whole edge
+//    with it and never straightening -- which it gets away with only because
+//    the panel's bottom overshoots the viewport (see PANEL_BOTTOM_OVERSHOOT);
+//  - the far pair resolve to a square 0, and hold the card's own radius until
+//    the box has essentially landed. Straightening early reads as the panel
+//    losing its shape before it arrives.
+function cornerRoles(target) {
+  const onLeft =
+    (parseFloat(target.borderTopLeftRadius) || 0) >=
+    (parseFloat(target.borderTopRightRadius) || 0);
+  return onLeft
+    ? {
+        growing: ["borderTopLeftRadius"],
+        joining: "borderBottomLeftRadius",
+        late: ["borderTopRightRadius", "borderBottomRightRadius"],
+      }
+    : {
+        growing: ["borderTopRightRadius"],
+        joining: "borderBottomRightRadius",
+        late: ["borderTopLeftRadius", "borderBottomLeftRadius"],
+      };
+}
 
 // where along the flight the corners that end square start squaring off
 const CORNER_SPLIT = 0.66;
@@ -123,6 +201,7 @@ function buildCharacterCard(character) {
   canvasWrap.className = "char-card-canvas-wrap";
   // horizontal nudge for poses that should spill off the card (Rosetta's gown)
   canvasWrap.style.setProperty("--shift-x", `${character.shiftX ?? 0}%`);
+  canvasWrap.style.setProperty("--card-nudge", `${character.cardNudge ?? 0}px`);
   canvasWrap.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
   canvasWrap.style.setProperty("--aura-size", AURA.blur);
   const canvas = document.createElement("canvas");
@@ -132,8 +211,7 @@ function buildCharacterCard(character) {
 
   const panel = document.createElement("div");
   panel.className = "char-card-panel";
-  panel.style.background = gradientCss(character);
-  panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
+  paintPanel(panel, character);
   panel.innerHTML = `
     <h3 class="char-card-title" style="color:${character.titleTint}">${character.name}</h3>
     <p class="char-card-movie">Movie <b>${character.movie}</b></p>
@@ -151,17 +229,26 @@ function buildCharacterCard(character) {
   let viewer = null;
   // returns true only on the call that actually creates the viewer, so a
   // caller can count how many mounts it is waiting on
-  const mount = (onReady) => {
+  const mount = (onSettled) => {
     // a deferred mount can outlive its grid -- if the view has been torn
     // down, the canvas is detached and there is nothing to draw into
     if (viewer || !canvas.isConnected) return false;
+    // Drawn or failed, nothing is still waiting on this card. Both ends are
+    // reported, because a model that cannot load would otherwise hold up the
+    // prefetch queued behind it and the loading gate held in front of it --
+    // and the page is perfectly usable with one canvas left blank.
+    const settle = () => {
+      modelSettled(character.model);
+      onSettled?.();
+    };
     viewer = createViewer(canvas, {
       modelUrl: character.model,
       ...cardFraming(character),
       yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
       rimColor: character.rimColor ?? character.gradient[0],
       spinSpeed: 0,
-      onReady,
+      onReady: settle,
+      onError: settle,
     });
     renderLoop.add(viewer);
     state.viewers.push(viewer);
@@ -184,6 +271,7 @@ function buildGridView() {
     track.appendChild(card);
     return {
       id: character.id,
+      model: character.model,
       card,
       mount,
       canvas: card.querySelector("canvas"),
@@ -193,6 +281,54 @@ function buildGridView() {
   // how the reverse flight finds the card it is flying back into
   view.cardFor = (id) => mounts.find((m) => m.id === id) ?? null;
   view.otherCards = (id) => mounts.filter((m) => m.id !== id).map((m) => m.card);
+
+  // The row dealt in from the right as the page arrives from behind the
+  // loading sheet -- see onPageIn at the bottom of this file. Called on the
+  // first grid only: every later one either flies back out of the detail view
+  // or was never away.
+  //
+  // Not applied when the view is built, even though that is where a "from"
+  // state belongs: a transform changes what getBoundingClientRect reports, and
+  // mountNearby uses exactly that to decide which characters to load. Held off
+  // a card three hundred pixels to its right and the wrong four get mounted.
+  view.dealIn = () => {
+    // nothing to play back to someone who asked not to be moved -- the cards
+    // are already sitting where this would land them
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const reach = (mounts[0]?.card.offsetWidth ?? 0) * CARD_ENTER_REACH;
+    if (!reach) return;
+    const cards = mounts.map(({ card }) => card);
+    gsap.fromTo(
+      cards,
+      { x: reach, scale: CARD_ENTER_SCALE },
+      {
+        x: 0,
+        scale: 1,
+        duration: CARD_ENTER_SECONDS,
+        ease: CARD_ENTER_EASE,
+        stagger: CARD_ENTER_STAGGER,
+        // handed back to its own styles the moment it lands, rather than left
+        // under an inline transform for the flight to the detail view to
+        // inherit and have to unpick
+        clearProps: "transform",
+      }
+    );
+    // same schedule, its own curve -- see CARD_ENTER_FADE_EASE
+    gsap.fromTo(
+      cards,
+      { opacity: 0 },
+      {
+        opacity: 1,
+        duration: CARD_ENTER_SECONDS * CARD_ENTER_FADE,
+        ease: CARD_ENTER_FADE_EASE,
+        stagger: CARD_ENTER_STAGGER,
+        clearProps: "opacity",
+      }
+    );
+    // how long the whole row takes to land, so the loading gate knows not to
+    // start anything heavy until it has -- see onPageIn
+    return CARD_ENTER_SECONDS + (cards.length - 1) * CARD_ENTER_STAGGER;
+  };
 
   // Every model starts downloading now, on-screen or not. Only the per-viewer
   // work is deferred (see mountNearby). Deferring the fetch as well was a
@@ -218,12 +354,15 @@ function buildGridView() {
     </div>
     <div class="pager">
       <button class="pager-btn" id="prevBtn" type="button" aria-label="Previous">
-        <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M8 0L0 7L8 14Z" fill="currentColor"/></svg>
+        <!-- the arms run into a curved apex rather than meeting at a point:
+             stroke-linejoin:round only rounds by half the stroke width, which
+             at 2px is a 1px corner and still reads as a hard V -->
+        <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true"><path d="M7.5 1.5L3.4 6Q1.5 7.5 3.4 9L7.5 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Prev
       </button>
       <button class="pager-btn" id="nextBtn" type="button" aria-label="Next">
         Next
-        <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M0 0L8 7L0 14Z" fill="currentColor"/></svg>
+        <svg width="9" height="15" viewBox="0 0 9 15" fill="none" aria-hidden="true"><path d="M1.5 1.5L5.6 6Q7.5 7.5 5.6 9L1.5 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
   `;
@@ -421,7 +560,13 @@ function buildGridView() {
   function startPrefetch() {
     if (prefetching) return;
     prefetching = true;
-    prefetchRest();
+    // Never underneath the loading sheet. Decoding one of these costs the main
+    // thread seconds at a time, and the entrance is animated on that thread:
+    // traced on a cold load, the off-screen models starting here froze the
+    // flight into the nav for seven seconds and then finished it in a jump.
+    // The cards this buys are on the second page, which is at minimum a swipe
+    // away -- it can wait for the page to be handed over.
+    afterEntrance(prefetchRest);
   }
 
   // Cards whose model should already be in hand: anything on screen, plus half
@@ -435,14 +580,26 @@ function buildGridView() {
   // all six decoding at once simply made the visible ones queue behind the
   // ones nobody can see.
   let waitingOn = 0;
+  let gatedEntrance = false;
   function mountNearby() {
     // half a card of runway. Measured against the card, not the scrollport:
     // half a viewport is wider than the entire overflow here, so it swept in
     // all six and the deferral did nothing at all.
     const pad = (mounts[0]?.card.offsetWidth ?? 0) * 0.5;
-    for (const { card, mount } of mounts) {
+    const nearby = mounts.filter(({ card }) => {
       const r = card.getBoundingClientRect();
-      if (r.right <= -pad || r.left >= window.innerWidth + pad) continue;
+      return r.right > -pad && r.left < window.innerWidth + pad;
+    });
+    // What the loading sheet is held up by: every card of this first screenful,
+    // which is four across a desktop and one on a phone. Registered BEFORE the
+    // mounts below, so a model already in cache cannot report itself drawn
+    // before the sheet knows it was waiting for it. Only the first call counts
+    // -- see gateOn -- so a card mounted later by scrolling never re-arms it.
+    if (!gatedEntrance) {
+      gatedEntrance = true;
+      gateOn(nearby.map(({ model }) => model));
+    }
+    for (const { mount } of nearby) {
       if (mount(() => { if (--waitingOn <= 0) startPrefetch(); })) waitingOn++;
     }
   }
@@ -530,6 +687,7 @@ function buildMascotCanvas(character) {
   canvas.setAttribute("aria-hidden", "true");
   canvas.style.setProperty("--detail-shift-x", `${character.detailShiftX ?? 0}%`);
   canvas.style.setProperty("--detail-shift-y", `${character.detailShiftY ?? 0}%`);
+  canvas.style.setProperty("--mobile-nudge", `${character.mobileNudge ?? 0}px`);
   // same accent halo the cards carry, so the character doesn't arrive here
   // permanently stripped of it. Affordable on this canvas and not on the
   // flight's precisely because this one is static -- the blur rasterises once
@@ -568,37 +726,91 @@ function buildClips(character) {
   track.className = "clips-track";
 
   getMovie(character.movie).clips.forEach((clip, i) => {
-    const card = document.createElement("button");
+    // A div, not a button: once it is playing it contains an iframe, and a
+    // button wrapping an interactive player swallows the player's own controls
+    // (and is invalid). It carries the button role only while it is still a
+    // poster waiting to be clicked -- stopClip puts that back.
+    const card = document.createElement("div");
     card.className = "clip-card";
-    card.type = "button";
-    card.setAttribute("aria-label", `Play ${character.movie} clip ${i + 1}`);
-    // preload none: three videos per character, six characters, and most are
-    // never played. The poster is what gets seen until one is asked for.
     card.innerHTML = `
-      <img class="clip-poster" src="${clip.poster}" alt="">
-      <video class="clip-video" src="${clip.src}" loop playsinline preload="none"></video>
+      <img class="clip-poster" src="${clip.poster}" alt="" loading="lazy">
       <span class="clip-play">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M10 8.5L16 12L10 15.5V8.5Z" fill="#243A74"/></svg>
       </span>
     `;
-    const video = card.querySelector(".clip-video");
-    card.addEventListener("click", () => {
-      const playing = card.classList.contains("is-playing");
-      // only ever one at a time, so clicking a second does not leave the
-      // first running behind it
+
+    // A video with no maxres thumbnail comes back as a 120x90 grey placeholder
+    // on a 404, which loads successfully as far as the browser is concerned --
+    // so both the error and the too-small case have to be caught.
+    const poster = card.querySelector(".clip-poster");
+    const useFallback = () => {
+      if (poster.dataset.fallback) return;
+      poster.dataset.fallback = "1";
+      poster.src = clip.posterFallback;
+    };
+    poster.addEventListener("error", useFallback);
+    poster.addEventListener("load", () => {
+      if (poster.naturalWidth < 320) useFallback();
+    });
+
+    const asPoster = () => {
+      card.setAttribute("role", "button");
+      card.setAttribute("tabindex", "0");
+      card.setAttribute("aria-label", `Play ${character.movie} trailer ${i + 1}`);
+    };
+    asPoster();
+
+    const stop = () => {
+      card.classList.remove("is-playing");
+      // Removing the iframe is what actually stops it -- there is no pause()
+      // to reach for without loading YouTube's player API, and leaving it in
+      // the DOM leaves the audio running. It costs nothing to rebuild: the
+      // next click makes a fresh one.
+      card.querySelector(".clip-embed")?.remove();
+      asPoster();
+    };
+
+    const play = () => {
+      if (card.classList.contains("is-playing")) return;
+      // only ever one at a time, so starting a second does not leave the first
+      // playing behind it
       for (const other of track.querySelectorAll(".clip-card.is-playing")) {
-        other.classList.remove("is-playing");
-        other.querySelector(".clip-video")?.pause();
+        other.dispatchEvent(new CustomEvent("clip:stop"));
       }
-      if (playing) return;
       card.classList.add("is-playing");
-      // a click is a user gesture, so this is allowed to have sound
-      video.muted = false;
-      video.play().catch(() => {
-        // autoplay policy, a missing file, an unsupported codec -- fall back
-        // to the poster rather than leaving a dead black rectangle
-        card.classList.remove("is-playing");
-      });
+      // it is the player's turn to handle keys and clicks now
+      card.removeAttribute("role");
+      card.removeAttribute("tabindex");
+      card.removeAttribute("aria-label");
+
+      // Built on click rather than up front: eighteen embeds across six
+      // characters, nearly all of them never played, and each one is a whole
+      // document. The poster is what gets seen until one is asked for.
+      // autoplay is allowed here because the click IS the user gesture.
+      const frame = document.createElement("iframe");
+      frame.className = "clip-embed";
+      frame.title = `${character.movie} trailer ${i + 1}`;
+      frame.allow =
+        "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+      frame.allowFullscreen = true;
+      frame.referrerPolicy = "strict-origin-when-cross-origin";
+      // -nocookie so idle viewers who never press play are not tracked
+      frame.src =
+        `https://www.youtube-nocookie.com/embed/${clip.youtubeId}` +
+        `?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+      card.appendChild(frame);
+    };
+
+    card.addEventListener("clip:stop", stop);
+    card.addEventListener("click", () => {
+      if (!card.classList.contains("is-playing")) play();
+    });
+    card.addEventListener("keydown", (event) => {
+      if (card.classList.contains("is-playing")) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        play();
+      }
     });
     track.appendChild(card);
   });
@@ -617,6 +829,64 @@ function mountMascotViewer(onPainted) {
   const mount = pendingMascot;
   pendingMascot = null;
   mount?.(onPainted);
+}
+
+// Swiping up and down switches characters -- on TOUCH ONLY. Deliberately no
+// wheel handler: with a mouse, switching stays on the chevron, so changing
+// character means travelling across the screen to click it, and that travel is
+// what makes the character's cursor-follow read as alive. A wheel flick
+// switches without moving the pointer at all, which loses that and invites
+// spinning through six characters at a redraw apiece.
+//
+// No feature detection needed for the split -- touch events simply do not fire
+// for a mouse or trackpad, so binding these alone IS the condition.
+//
+// The gesture follows the carousel's model: one swipe is one discrete command
+// rather than a drag that tracks the finger, and input is ignored until the
+// swap it started has finished, so a fast repeat swipe cannot skate several
+// characters past the one asked for. Threshold matches the carousel's, so both
+// need the same amount of intent.
+const DETAIL_SWIPE_THRESHOLD = 40;
+
+function attachDetailSwipe(view) {
+  let busyUntil = 0;
+
+  // up goes forward, so finger and content travel together; down goes back,
+  // with the whole transition mirrored
+  const step = (direction) => {
+    if (performance.now() < busyUntil) return;
+    const index = characters.findIndex((c) => c.id === state.detailId);
+    if (index < 0) return;
+    const target = characters[(index + direction + characters.length) % characters.length];
+    // read at call time: SWITCH_SECONDS is declared further down the file
+    busyUntil = performance.now() + SWITCH_SECONDS * 1000;
+    showDetail(target.id, null, direction);
+  };
+
+  let startX = null;
+  let startY = null;
+  view.addEventListener(
+    "touchstart",
+    (event) => {
+      startX = event.touches[0].clientX;
+      startY = event.touches[0].clientY;
+    },
+    { passive: true }
+  );
+  view.addEventListener(
+    "touchend",
+    (event) => {
+      if (startY === null) return;
+      const dx = event.changedTouches[0].clientX - startX;
+      const dy = event.changedTouches[0].clientY - startY;
+      startX = startY = null;
+      // vertical intent only, so swiping the clip row sideways still scrolls it
+      if (Math.abs(dy) <= Math.abs(dx)) return;
+      if (Math.abs(dy) < DETAIL_SWIPE_THRESHOLD) return;
+      step(dy < 0 ? 1 : -1);
+    },
+    { passive: true }
+  );
 }
 
 function buildDetailView(characterId, { deferMascot = false } = {}) {
@@ -658,8 +928,7 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
 
   const panel = document.createElement("div");
   panel.className = "detail-panel";
-  panel.style.background = gradientCss(character);
-  panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
+  paintPanel(panel, character);
 
 
   panel.appendChild(buildDetailInfo(character));
@@ -669,6 +938,8 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
 
   const canvas = buildMascotCanvas(character);
   body.appendChild(canvas);
+
+  attachDetailSwipe(view);
 
   view.appendChild(body);
 
@@ -966,8 +1237,8 @@ const SWITCH_TEXT_SCALE = 0.95;
 // how far the clip row drops as it leaves, and arrives from
 const SWITCH_CLIPS_DROP = 44;
 // how far each model travels, as a share of its own height. The outgoing one
-// goes DOWN and the incoming arrives from above, so the swap runs the same way
-// the rail's chevron points.
+// goes UP and the incoming arrives from below, so a swipe up carries you
+// forward the way it does in any vertical feed.
 const SWITCH_MODEL_TRAVEL = 0.5;
 
 // Snaps an in-flight switch to its finished state. Set while one is running so
@@ -979,7 +1250,7 @@ let endActiveSwitch = null;
 // its colour washes over to the next character's, the copy cross-fades, the
 // clip row drops away and the model is swapped top to bottom, following the
 // chevron. Nothing relayouts and the page never slides.
-function switchDetail(characterId) {
+function switchDetail(characterId, direction = 1) {
   // a second click while the first swap is still running would otherwise leave
   // two outgoing copies of everything behind
   endActiveSwitch?.();
@@ -1050,7 +1321,13 @@ function switchDetail(characterId) {
   body.appendChild(newCanvas);
   mountMascot(newCanvas, character, null);
 
-  const travel = oldCanvas.getBoundingClientRect().height * SWITCH_MODEL_TRAVEL;
+  // +1 runs the swap UPWARD: the outgoing character leaves out of the top and
+  // the next arrives from below, the way a vertical feed moves. That pairs the
+  // two inputs the conventional way round -- scrolling the wheel down and
+  // swiping the finger up both mean "next" -- which they did not when the swap
+  // ran the other way. -1 mirrors the whole thing for going back.
+  const dir = direction < 0 ? -1 : 1;
+  const travel = oldCanvas.getBoundingClientRect().height * SWITCH_MODEL_TRAVEL * dir;
 
   const tl = gsap.timeline();
   tl.to(wash, { opacity: 1, duration: SWITCH_SECONDS * 0.7, ease: "power2.inOut" }, 0);
@@ -1064,31 +1341,55 @@ function switchDetail(characterId) {
     SWITCH_TEXT_SECONDS * 0.8
   );
 
-  tl.to(oldClips, { opacity: 0, y: SWITCH_CLIPS_DROP, duration: SWITCH_TEXT_SECONDS, ease: "power2.in" }, 0);
-  // in from ABOVE, not back up from below: the whole swap runs one way down
-  // the screen, the same way the chevron points, so the clip row arriving has
-  // to travel with the model rather than against it
+  // Exactly the copy's exit, plus the travel. The two already shared a start,
+  // a duration and an ease, so they were leaving together -- but the copy
+  // scaled away while the clips only slid, and two different treatments read as
+  // two separate departures. The scale is what makes them one. They share
+  // transform-origin: left center (.switch-pane), so it pulls the same way.
+  tl.to(
+    oldClips,
+    {
+      opacity: 0,
+      scale: SWITCH_TEXT_SCALE,
+      y: -SWITCH_CLIPS_DROP * dir,
+      duration: SWITCH_TEXT_SECONDS,
+      ease: "power2.in",
+    },
+    0
+  );
+  // in from BELOW, not down from above: the whole swap runs one way up the
+  // screen, so the clip row arriving has to travel with the model rather than
+  // against it
   tl.fromTo(
     newClips,
-    { opacity: 0, y: -SWITCH_CLIPS_DROP },
+    { opacity: 0, y: SWITCH_CLIPS_DROP * dir },
     { opacity: 1, y: 0, duration: SWITCH_TEXT_SECONDS * 1.3, ease: "power2.out" },
     SWITCH_TEXT_SECONDS * 0.8
   );
 
-  // the swap that follows the chevron: this one out of the bottom, the next in
-  // from the top
+  // this one out of the top, the next in from the bottom
   // The one leaving goes quicker than the one arriving, and on a harder curve.
   // Matching their speeds left two characters sharing the frame for most of
   // the switch, which is what made it feel crowded rather than smooth -- the
   // outgoing one has nothing left to say, so it should clear out and leave the
   // arrival to be the thing you watch.
-  tl.to(oldCanvas, { y: travel, opacity: 0, duration: SWITCH_SECONDS * 0.38, ease: "power3.in" }, 0);
+  // Opacity is tweened SEPARATELY from the travel, and much faster. Riding the
+  // same tween meant the arriving character eased in over the whole distance --
+  // measured at 0.49 opaque 180ms in and still 0.86 at 270ms, by which point it
+  // is sitting over the panel. A solid 3D model you can see the background
+  // through reads as a glitch, not as a transition. Now it is opaque within
+  // ~90ms, while it is still low and moving, and the travel keeps its own
+  // longer curve. The outgoing one gets the same treatment on the way out, so
+  // the two are never both half-there at once.
+  tl.to(oldCanvas, { y: -travel, duration: SWITCH_SECONDS * 0.38, ease: "power3.in" }, 0);
+  tl.to(oldCanvas, { opacity: 0, duration: SWITCH_SECONDS * 0.22, ease: "power2.in" }, SWITCH_SECONDS * 0.14);
   tl.fromTo(
     newCanvas,
-    { y: -travel, opacity: 0 },
-    { y: 0, opacity: 1, duration: SWITCH_SECONDS * 0.7, ease: "power3.out" },
+    { y: travel, opacity: 0 },
+    { y: 0, duration: SWITCH_SECONDS * 0.7, ease: "power3.out" },
     SWITCH_SECONDS * 0.22
   );
+  tl.to(newCanvas, { opacity: 1, duration: SWITCH_SECONDS * 0.16, ease: "power2.out" }, SWITCH_SECONDS * 0.22);
 
   // --- the rail ----------------------------------------------------------
   rail.innerHTML = `
@@ -1110,8 +1411,7 @@ function switchDetail(characterId) {
     endActiveSwitch = null;
     tl.kill();
     // the wash becomes the panel's own background, and every outgoing piece goes
-    panel.style.background = gradientCss(character);
-    panel.style.setProperty("--panel-ratio", character.panelRatio ?? 1.06);
+    paintPanel(panel, character);
     wash.remove();
     oldInfo.remove();
     oldClips.remove();
@@ -1127,15 +1427,29 @@ function switchDetail(characterId) {
   return true;
 }
 
+// A playing embed is a live document with sound, and the flight back to the
+// grid takes long enough for it to be heard over a view it no longer belongs
+// to. Switching characters tears its clip row out of the DOM, which stops it;
+// closing does not, so it is stopped here.
+function stopAllClips() {
+  for (const card of document.querySelectorAll(".clip-card.is-playing")) {
+    card.dispatchEvent(new CustomEvent("clip:stop"));
+  }
+}
+
 function showGrid() {
+  stopAllClips();
   resetYawFollow();
   state.view = "grid";
   // flies the character back into its card when there is one in the air to
   // fly; falls back to a plain mount otherwise (first load, or a failed flight)
-  if (flyToGrid(state.detailId)) return;
+  if (flyToGrid(state.detailId)) return null;
   const view = mount(buildGridView);
   // come back to the page the character was on, rather than always to page one
   view.revealCard?.(state.detailId);
+  // handed back so the first load can deal its cards in; every other caller
+  // ignores it
+  return view;
 }
 
 const FLIGHT_SECONDS = 0.62;
@@ -1397,11 +1711,12 @@ function flyToDetail(character, cardCanvas) {
     // follows, on screen the whole way. Growing it in step with the box, on
     // the box's own ease, makes the radius read as part of the same expansion
     // rather than something that happens to the panel after it arrives.
+    const roles = cornerRoles(panelToCorners);
     const pick = (corners) =>
       Object.fromEntries(corners.map((corner) => [corner, panelToCorners[corner]]));
 
     gsap.to(panel, {
-      ...pick(GROWING_CORNERS),
+      ...pick(roles.growing),
       duration: FLIGHT_SECONDS,
       ease: "power3.inOut",
     });
@@ -1411,7 +1726,7 @@ function flyToDetail(character, cardCanvas) {
     // has landed. They hold the card's own radius and only square off once the
     // box is essentially in position.
     gsap.to(panel, {
-      ...pick(LATE_CORNERS),
+      ...pick(roles.late),
       duration: FLIGHT_SECONDS * (1 - CORNER_SPLIT),
       ease: "power2.inOut",
       delay: FLIGHT_SECONDS * CORNER_SPLIT,
@@ -1421,9 +1736,10 @@ function flyToDetail(character, cardCanvas) {
     // can simply BE top-left for the whole move: the two rise together and the
     // entire left edge rounds as the panel opens, with no second phase and no
     // switch of behaviour to hide.
-    const fromTopLeft = parseFloat(panelFromCorners.borderTopLeftRadius) || 0;
-    const toTopLeft = parseFloat(panelToCorners.borderTopLeftRadius) || 0;
-    const joiningCorner = (base) => lerp(fromTopLeft, toTopLeft, base);
+    const [growingCorner] = roles.growing;
+    const fromGrowing = parseFloat(panelFromCorners[growingCorner]) || 0;
+    const toGrowing = parseFloat(panelToCorners[growingCorner]) || 0;
+    const joiningCorner = (base) => lerp(fromGrowing, toGrowing, base);
 
     // ...which only works because the bottom edge outruns the viewport. The
     // corner's curve occupies the last `radius` pixels of the left edge, so
@@ -1431,7 +1747,7 @@ function flyToDetail(character, cardCanvas) {
     // out of sight and the edge reads as straight all the way down. The
     // stylesheet's resting box -- square, ending exactly at the fold -- looks
     // identical, which is what makes the hand-off on landing invisible.
-    const bottomTo = panelTo.bottom + toTopLeft + PANEL_BOTTOM_OVERSHOOT;
+    const bottomTo = panelTo.bottom + toGrowing + PANEL_BOTTOM_OVERSHOOT;
 
     // Growing past the fold would otherwise drag the panel's contents down
     // with it, since they are laid out with space-between against whatever
@@ -1466,7 +1782,7 @@ function flyToDetail(character, cardCanvas) {
         paddingBottom: `${basePadBottom + belowFold}px`,
         // driven here rather than as its own tween so it can track top-left
         // exactly -- see joiningCorner
-        [JOINING_CORNER]: `${joiningCorner(base)}px`,
+        [roles.joining]: `${joiningCorner(base)}px`,
       });
     };
 
@@ -1640,7 +1956,7 @@ function flyToDetail(character, cardCanvas) {
   return true;
 }
 
-function showDetail(characterId, cardCanvas) {
+function showDetail(characterId, cardCanvas, direction = 1) {
   // a new character starts facing front, however the last one was left
   resetYawFollow();
   const character = getCharacter(characterId);
@@ -1651,7 +1967,7 @@ function showDetail(characterId, cardCanvas) {
   // enhancement rather than a dependency: flying from a card, sliding between
   // two expanded characters, or a plain mount.
   if (cardCanvas && flyToDetail(character, cardCanvas)) return;
-  if (fromDetail && switchDetail(characterId)) return;
+  if (fromDetail && switchDetail(characterId, direction)) return;
   mount(() => buildDetailView(characterId));
 }
 
@@ -1736,4 +2052,10 @@ menuBtn?.addEventListener("click", () => {
   for (const viewer of state.viewers) viewer.render();
 });
 
-showGrid();
+// The grid is built and laid out at once -- the characters need real boxes to
+// be measured and drawn into long before anyone sees them -- but it is held
+// behind the loading sheet, and its cards are dealt in as that hands the page
+// over. First paint only; a grid returned to from the detail view flies its
+// card back instead, and one already on screen has nowhere to arrive from.
+const firstGrid = showGrid();
+onPageIn(() => firstGrid?.dealIn());
