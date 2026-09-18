@@ -348,9 +348,19 @@ function buildGridView() {
   const footer = document.createElement("footer");
   footer.className = "grid-footer";
   footer.innerHTML = `
+    <!-- Was a Facebook and a Twitter link, both of which went nowhere
+         (href="#" and a cancelled click). The row is the same size and in the
+         same place; it now carries the two credits, and both go somewhere.
+         The design points at the shot this was built from rather than at a
+         profile or a portfolio home -- it is the specific thing being
+         credited, and it is what someone following the link came to see. -->
     <div class="social-links">
-      <a href="#" onclick="return false">Facebook</a>
-      <a href="#" onclick="return false">Twitter</a>
+      <a
+        href="https://dribbble.com/shots/5874646-Disney-Characters-Web-UI"
+        target="_blank"
+        rel="noopener noreferrer"
+      >Design</a>
+      <a href="https://kadet.dev" target="_blank" rel="noopener noreferrer">Dev</a>
     </div>
     <div class="pager">
       <button class="pager-btn" id="prevBtn" type="button" aria-label="Previous">

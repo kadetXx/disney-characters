@@ -481,6 +481,7 @@ img {
   color: var(--color-muted);
 }
 
+
 .pager {
   display: flex;
   flex-direction: row;
