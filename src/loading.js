@@ -19,13 +19,12 @@ import { modelProgress, onModelProgress } from "./three/viewer.js";
 const sheet = document.getElementById("loading");
 const mark = document.getElementById("loadingMark");
 
-// What the fill is split between. The bytes are only half of the wait: these
-// models are 15-27MB of meshopt geometry and the decode plus GPU upload costs
-// about as much again -- measured on this project, every file had arrived by
-// 4.3s and nothing was on screen until 12.8s. A bar driven by bytes alone
-// would therefore sit full for seconds at the end, which reads as a hang. So
-// each character owns an equal slice of the fill, and pays it out half for
-// arriving and half for actually being drawn.
+// What the fill is split between. The bytes are only half of the wait: what
+// happens AFTER a model lands costs about as much again -- measured on this
+// project, every file had arrived by 4.3s and nothing was on screen until
+// 12.8s. A bar driven by bytes alone would therefore sit full for seconds at
+// the end, which reads as a hang. So each character owns an equal slice of the
+// fill, and pays it out half for arriving and half for actually being drawn.
 const DOWNLOAD_SHARE = 0.5;
 
 // What the mark shows before any character has reported anything. Matches the
@@ -171,8 +170,8 @@ let pageArriving = !sheet;
 // A job may report how long its own arrival takes, in seconds. The heavy work
 // held by afterEntrance is let go once the LONGEST of them has landed, not when
 // the sheet's own timeline runs out: the row deals itself in over most of a
-// second, well past the end of the reveal, and a decode started underneath it
-// freezes the last cards halfway exactly as it used to freeze the flight.
+// second, well past the end of the reveal, and a character brought on screen
+// underneath it freezes the last cards halfway exactly as it froze the flight.
 function pageIn() {
   pageArriving = true;
   let longest = PAGE_FADE_SECONDS;
@@ -191,7 +190,7 @@ export function onPageIn(job) {
 // Runs `job` once the entrance is off the screen, or straight away if it
 // already is. For work that takes the main thread away for long enough to be
 // seen: every frame of the reveal is animated from that same thread, so a
-// multi-megabyte decode started underneath it does not slow the entrance down,
+// character brought on screen underneath it does not slow the entrance down,
 // it stops it dead halfway and then finishes it in one jump.
 export function afterEntrance(job) {
   if (finished) job();

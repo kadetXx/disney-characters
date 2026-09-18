@@ -560,10 +560,10 @@ function buildGridView() {
   function startPrefetch() {
     if (prefetching) return;
     prefetching = true;
-    // Never underneath the loading sheet. Decoding one of these costs the main
-    // thread seconds at a time, and the entrance is animated on that thread:
-    // traced on a cold load, the off-screen models starting here froze the
-    // flight into the nav for seven seconds and then finished it in a jump.
+    // Never underneath the loading sheet. Bringing one of these on screen costs
+    // the main thread seconds at a time, and the entrance is animated on that
+    // thread: traced on a cold load, the off-screen models starting here froze
+    // the flight into the nav for seven seconds and then finished it in a jump.
     // The cards this buys are on the second page, which is at minimum a swipe
     // away -- it can wait for the page to be handed over.
     afterEntrance(prefetchRest);
