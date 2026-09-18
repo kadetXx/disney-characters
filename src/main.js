@@ -393,14 +393,15 @@ function buildGridView() {
              text next to it, so the row stays quiet -- and "made with care,
              here is the fine print" is the honest tone for what this is.
 
-             1.9px stroke: matched by eye to the text's stem width, which is
-             what makes it sit in the row rather than on top of it. -->
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+             Solid, and sized against the 15px text rather than smaller than
+             it. An outline at 17px was reading as a faint scratch beside two
+             solid words -- a filled shape holds the same visual weight as the
+             letterforms it sits with, which is what actually makes it blend
+             rather than being literally lighter than everything else. -->
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
           <path
-            d="M12 20s-7-4.6-7-9.4A4 4 0 0 1 12 8a4 4 0 0 1 7 2.6C19 15.4 12 20 12 20Z"
-            stroke="currentColor"
-            stroke-width="1.9"
-            stroke-linejoin="round"
+            d="M12 20.4s-7.4-4.7-7.4-9.8A4.2 4.2 0 0 1 12 7.7a4.2 4.2 0 0 1 7.4 2.9c0 5.1-7.4 9.8-7.4 9.8Z"
+            fill="currentColor"
           />
         </svg>
         <span class="notice-tip" id="noticeText" role="tooltip"
