@@ -127,13 +127,54 @@ function applyGloss(root) {
   });
 }
 
-// Starts (and caches) a model's fetch without building a viewer for it. The
-// two costs are separate: this one is the download, shared by every viewer of
-// that character and paid once; creating a viewer then costs a Box3 over three
-// million vertices plus the GPU upload, and that is the part worth deferring
-// for a card nobody can see yet.
+// Pulls a model's BYTES into the HTTP cache without decoding it.
+//
+// This used to call loadModel, which parses as well -- and parsing is the
+// expensive half by a wide margin. Decoded, the six characters are ~580MB of
+// vertex and index buffers on the CPU (moana alone is 126MB, 3M triangles) and
+// roughly as much again once uploaded. Doing that for all six at page load is
+// about a gigabyte, which iOS Safari answers by killing the tab: the page
+// reloads, reloads again, then shows "a problem repeatedly occurred".
+//
+// The original reasoning still holds and is preserved here -- deferring the
+// FETCH was a mistake, because paging to the second screenful left those cards
+// blank for eleven seconds waiting on bytes nobody had asked for. Bytes early,
+// decode late. The bug was that one call did both.
+//
+// The bytes are held rather than left to the HTTP cache, because loadModel
+// parses straight out of them. That avoids the obvious trap in fetching and
+// parsing separately -- two requests racing for the same URL, which browsers
+// do not reliably coalesce, so a cold load would pull every model twice. All
+// six as compressed GLB is 51MB, and each buffer is dropped the moment it has
+// been parsed.
+const byteCache = new Map();
+
 export function prefetchModel(url) {
-  return loadModel(url);
+  if (modelCache.has(url)) return modelCache.get(url).then(() => undefined);
+  if (!byteCache.has(url)) {
+    byteCache.set(
+      url,
+      fetch(url, { credentials: "same-origin" })
+        .then((response) => {
+          if (!response.ok) throw new Error(`${response.status} for ${url}`);
+          const total = Number(response.headers.get("content-length")) || 0;
+          if (total) modelBytes.set(url, { loaded: total, total });
+          return response.arrayBuffer();
+        })
+        .then((buffer) => {
+          // report it as arrived, so the loading sheet's fill advances on the
+          // bytes exactly as it did when the loader owned the download
+          for (const listener of byteListeners) listener(url);
+          return buffer;
+        })
+        .catch((error) => {
+          byteCache.delete(url);
+          modelBytes.delete(url);
+          throw error;
+        })
+    );
+  }
+  return byteCache.get(url).then(() => undefined);
 }
 
 // How far each model's bytes have got, kept for the whole life of the page so a
@@ -156,17 +197,27 @@ export function onModelProgress(listener) {
   return () => byteListeners.delete(listener);
 }
 
+// Parses, and caches the parsed scene. This is the expensive half -- ~85MB of
+// buffers for a typical character, 126MB for moana -- so it happens only for a
+// character something actually wants to draw, never speculatively for all six.
 function loadModel(url) {
   if (!modelCache.has(url)) {
-    modelCache.set(
-      url,
-      loader
-        .loadAsync(url, (event) => {
+    // If the bytes are already in hand (or on their way), parse those rather
+    // than asking the network a second time.
+    const source = byteCache.has(url)
+      ? byteCache.get(url).then((buffer) => loader.parseAsync(buffer, ""))
+      : loader.loadAsync(url, (event) => {
           if (!event.lengthComputable || !event.total) return;
           modelBytes.set(url, { loaded: event.loaded, total: event.total });
           for (const listener of byteListeners) listener(url);
-        })
+        });
+    modelCache.set(
+      url,
+      source
         .then((gltf) => {
+          // the compressed bytes have served their purpose; holding them as
+          // well as the parsed scene is 51MB nobody is going to read again
+          byteCache.delete(url);
           applyGloss(gltf.scene);
           return gltf.scene;
         })

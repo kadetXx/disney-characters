@@ -112,6 +112,23 @@ function detailFraming(character) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
+// Whether this device can afford to hold characters it is not showing.
+//
+// Decoded, the six come to ~580MB of vertex and index buffers on the CPU and
+// roughly as much again once uploaded -- moana alone is 126MB for 3M triangles.
+// A desktop shrugs at that. A phone does not: iOS Safari kills the tab, which
+// surfaces as the page reloading over and over and then "a problem repeatedly
+// occurred". So on a small screen nothing is mounted speculatively; only the
+// cards actually reached get built, and paging pays for them then.
+//
+// Screen width is the signal that matters because it is the one iOS gives us --
+// deviceMemory is Chromium-only and absent in exactly the browser that has the
+// problem. It is used when present as a second way in, for a low-memory
+// Android that happens to have a wide screen.
+const MEMORY_CONSTRAINED =
+  (navigator.deviceMemory !== undefined && navigator.deviceMemory <= 4) ||
+  window.matchMedia("(max-width: 900px)").matches;
+
 // Waits for the browser to have nothing better to do. The timeout is a
 // backstop, not a target: a page that is never idle -- a pointer resting on a
 // character keeps the yaw chasing, which keeps frames coming -- would otherwise
@@ -627,6 +644,10 @@ function buildGridView() {
   function startPrefetch() {
     if (prefetching) return;
     prefetching = true;
+    // Not on a phone, at any point. Mounting the rest is a convenience -- it
+    // saves a beat when paging -- and it is not worth a killed tab. mountNearby
+    // still builds each card as it is reached.
+    if (MEMORY_CONSTRAINED) return;
     // Never underneath the loading sheet, and never in the beat right after it
     // either.
     //
