@@ -3,15 +3,54 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="A 3D Disney character browser, built with Three.js." />
+    <meta
+      name="description"
+      content="Six Disney characters rendered in 3D in the browser — Rosetta, Sadness, Disgust, Judy, Moana and Vanellope. Open one to see it fly into place, with its film's clips alongside. Built with Three.js."
+    />
+    <!-- The page's own ground, not the favicon's: this tints the browser chrome
+         around the site, which is white here. -->
     <meta name="theme-color" content="#ffffff" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://i.ytimg.com; frame-src https://www.youtube-nocookie.com; connect-src 'self' blob:; object-src 'none'; base-uri 'self'"
     />
-    <title>Disney Characters</title>
+    <title>Disney Characters — six characters in 3D, in the browser</title>
+    <link rel="canonical" href="https://disney-characters.pages.dev/" />
 
+    <!-- The mark is the Disney D alone, on a square. The full wordmark used to
+         be the favicon and it is 2.4x wider than it is tall, which at the 16px
+         a tab actually renders is an unreadable smear. White on navy rather
+         than black on nothing, so it survives a dark tab bar too.
+         The PNGs are for Safari and iOS, which do not take the SVG. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- Sharing. og:image must be absolute -- a crawler has no page to resolve
+         a relative path against -- and every scraper wants its own spelling of
+         the same four facts, so they are repeated rather than shared. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Disney Characters" />
+    <meta property="og:title" content="Disney Characters — six characters in 3D, in the browser" />
+    <meta
+      property="og:description"
+      content="Six Disney characters rendered in 3D in the browser. Open one to see it fly into place, with its film's clips alongside."
+    />
+    <meta property="og:url" content="https://disney-characters.pages.dev/" />
+    <meta property="og:image" content="https://disney-characters.pages.dev/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Judy Hopps from Zootopia, rendered in 3D beside her description and film clips." />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Disney Characters — six characters in 3D, in the browser" />
+    <meta
+      name="twitter:description"
+      content="Six Disney characters rendered in 3D in the browser. Open one to see it fly into place, with its film's clips alongside."
+    />
+    <meta name="twitter:image" content="https://disney-characters.pages.dev/og.png" />
+    <meta name="twitter:image:alt" content="Judy Hopps from Zootopia, rendered in 3D beside her description and film clips." />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
