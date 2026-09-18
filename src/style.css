@@ -719,10 +719,31 @@ img {
      flight canvas this one's contents are static, so the blur rasterises once
      and is cached instead of being redone every frame. */
   filter: drop-shadow(0 0 var(--aura-size, 10px) var(--aura, transparent));
+  /* Blooms in rather than snapping on. The flight carries no aura at all (see
+     .flight-canvas), so the moment this class lands the halo would otherwise
+     arrive complete, in a single frame, on a character that has just come to
+     rest -- which is the flash that reads as something switching on rather than
+     settling. Interpolating from `none` uses the zero value for the missing
+     function, so it grows out of the silhouette from nothing.
+
+     Affordable here for the same reason the filter itself is: by the time this
+     runs the canvas contents have stopped changing, so it is one blur being
+     re-rasterised for 420ms rather than one per frame forever.
+
+     The way back is deliberately NOT eased. Leaving is a class swap to
+     .flight-canvas, and carrying a 50px blur into a transition that redraws
+     every frame is precisely what that class exists to avoid. */
+  transition: filter 420ms cubic-bezier(0.22, 1, 0.36, 1);
   /* the character sits on top of everything -- rail, close button and nav --
      so a tall pose reads as passing in front rather than being cut into */
   z-index: 6;
   pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-mascot-canvas {
+    transition: none;
+  }
 }
 
 .detail-info {
