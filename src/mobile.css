@@ -236,6 +236,14 @@
     top: calc(-51% + var(--card-nudge, 0px));
   }
 
+  /* the next character's name, lifted off the chevron. position relative
+     rather than a margin: an offset reserves no space, so the chevron and the
+     rail's rhythm stay put and only the glyphs move */
+  .rail-tab:not(.is-active) {
+    position: relative;
+    top: -0.5rem;
+  }
+
   /* 28px between three items pushed them most of the way to the middle of the
      bar, which read as centred-ish rather than as a group sitting at the left
      edge. Tighter, so they hold together as one cluster. */
