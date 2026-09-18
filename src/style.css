@@ -470,9 +470,14 @@ img {
   gap: 28px;
 }
 
+/* 15px to match .pager-btn at the other end of this row. They were 14 and 15,
+   which is close enough to look like a mistake rather than a distinction --
+   the row read as unsettled without it being obvious why. The weight and the
+   colour still differ, and those differences are the intended ones: the pager
+   is a control you press, these are credits you may not. */
 .social-links a {
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 15px;
   color: var(--color-muted-2);
   text-decoration: none;
 }
