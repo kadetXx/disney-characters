@@ -713,22 +713,28 @@ function mountMascotViewer(onPainted) {
   mount?.(onPainted);
 }
 
-// Up and down switch characters here, the way left and right do in the grid.
-// The same model as the carousel's: a swipe is one discrete command, not a
-// drag that tracks the finger, and input is ignored until the swap it started
-// has finished -- one trackpad flick fires dozens of wheel events, and without
-// the cooldown they queue up and skate several characters past the one asked
-// for. Thresholds and the cooldown are shared with the carousel so both
-// gestures need the same amount of intent.
-const DETAIL_WHEEL_THRESHOLD = 24;
+// Swiping up and down switches characters -- on TOUCH ONLY. Deliberately no
+// wheel handler: with a mouse, switching stays on the chevron, so changing
+// character means travelling across the screen to click it, and that travel is
+// what makes the character's cursor-follow read as alive. A wheel flick
+// switches without moving the pointer at all, which loses that and invites
+// spinning through six characters at a redraw apiece.
+//
+// No feature detection needed for the split -- touch events simply do not fire
+// for a mouse or trackpad, so binding these alone IS the condition.
+//
+// The gesture follows the carousel's model: one swipe is one discrete command
+// rather than a drag that tracks the finger, and input is ignored until the
+// swap it started has finished, so a fast repeat swipe cannot skate several
+// characters past the one asked for. Threshold matches the carousel's, so both
+// need the same amount of intent.
 const DETAIL_SWIPE_THRESHOLD = 40;
 
 function attachDetailSwipe(view) {
   let busyUntil = 0;
 
-  // up goes forward -- finger and content travel together, and it matches the
-  // wheel, where scrolling down is also forward; down goes back, with the
-  // whole transition mirrored
+  // up goes forward, so finger and content travel together; down goes back,
+  // with the whole transition mirrored
   const step = (direction) => {
     if (performance.now() < busyUntil) return;
     const index = characters.findIndex((c) => c.id === state.detailId);
@@ -738,19 +744,6 @@ function attachDetailSwipe(view) {
     busyUntil = performance.now() + SWITCH_SECONDS * 1000;
     showDetail(target.id, null, direction);
   };
-
-  view.addEventListener(
-    "wheel",
-    (event) => {
-      // the clip row is its own horizontal scroller -- a sideways gesture over
-      // it belongs to the clips, not to us
-      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-      if (Math.abs(event.deltaY) < DETAIL_WHEEL_THRESHOLD) return;
-      event.preventDefault();
-      step(Math.sign(event.deltaY));
-    },
-    { passive: false }
-  );
 
   let startX = null;
   let startY = null;
@@ -1247,13 +1240,23 @@ function switchDetail(characterId, direction = 1) {
   // the switch, which is what made it feel crowded rather than smooth -- the
   // outgoing one has nothing left to say, so it should clear out and leave the
   // arrival to be the thing you watch.
-  tl.to(oldCanvas, { y: -travel, opacity: 0, duration: SWITCH_SECONDS * 0.38, ease: "power3.in" }, 0);
+  // Opacity is tweened SEPARATELY from the travel, and much faster. Riding the
+  // same tween meant the arriving character eased in over the whole distance --
+  // measured at 0.49 opaque 180ms in and still 0.86 at 270ms, by which point it
+  // is sitting over the panel. A solid 3D model you can see the background
+  // through reads as a glitch, not as a transition. Now it is opaque within
+  // ~90ms, while it is still low and moving, and the travel keeps its own
+  // longer curve. The outgoing one gets the same treatment on the way out, so
+  // the two are never both half-there at once.
+  tl.to(oldCanvas, { y: -travel, duration: SWITCH_SECONDS * 0.38, ease: "power3.in" }, 0);
+  tl.to(oldCanvas, { opacity: 0, duration: SWITCH_SECONDS * 0.22, ease: "power2.in" }, SWITCH_SECONDS * 0.14);
   tl.fromTo(
     newCanvas,
     { y: travel, opacity: 0 },
-    { y: 0, opacity: 1, duration: SWITCH_SECONDS * 0.7, ease: "power3.out" },
+    { y: 0, duration: SWITCH_SECONDS * 0.7, ease: "power3.out" },
     SWITCH_SECONDS * 0.22
   );
+  tl.to(newCanvas, { opacity: 1, duration: SWITCH_SECONDS * 0.16, ease: "power2.out" }, SWITCH_SECONDS * 0.22);
 
   // --- the rail ----------------------------------------------------------
   rail.innerHTML = `
