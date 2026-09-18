@@ -1,6 +1,12 @@
 import gsap from "gsap";
 import { characters, getCharacter, getMovie, defaultCharacterId } from "./data/characters.js";
-import { createViewer, createRenderLoop, prefetchModel, setMeshMode } from "./three/viewer.js";
+import {
+  createViewer,
+  createRenderLoop,
+  prefetchModel,
+  releaseModel,
+  setMeshMode,
+} from "./three/viewer.js";
 import { gateOn, modelSettled, afterEntrance, onPageIn } from "./loading.js";
 
 // the Google Fonts link is preloaded (not render-blocking) in the HTML head --
@@ -287,7 +293,20 @@ function buildCharacterCard(character) {
     return true;
   };
 
-  return { card, mount };
+  // Hands the character back. The canvas keeps whatever it last drew -- it is
+  // a 2D surface with pixels in it, independent of the viewer that filled it --
+  // so a released card still looks right until it is redrawn, which matters
+  // because releasing happens while the card is a long way off screen and a
+  // wipe would be visible on the way back.
+  const unmount = () => {
+    if (!viewer) return false;
+    renderLoop.remove(viewer); // disposes it, which gives up its claim
+    state.viewers = state.viewers.filter((v) => v !== viewer);
+    viewer = null;
+    return releaseModel(character.model);
+  };
+
+  return { card, mount, unmount };
 }
 
 function buildGridView() {
@@ -299,13 +318,14 @@ function buildGridView() {
   const track = document.createElement("div");
   track.className = "carousel-track";
   const mounts = characters.map((character) => {
-    const { card, mount } = buildCharacterCard(character);
+    const { card, mount, unmount } = buildCharacterCard(character);
     track.appendChild(card);
     return {
       id: character.id,
       model: character.model,
       card,
       mount,
+      unmount,
       canvas: card.querySelector("canvas"),
       panel: card.querySelector(".char-card-panel"),
     };
@@ -683,7 +703,13 @@ function buildGridView() {
     // half a card of runway. Measured against the card, not the scrollport:
     // half a viewport is wider than the entire overflow here, so it swept in
     // all six and the deferral did nothing at all.
-    const pad = (mounts[0]?.card.offsetWidth ?? 0) * 0.5;
+    // Half a card of runway on a desktop, where four are visible at once and
+    // the next is already half on screen. A full card on a phone, where the
+    // carousel's pitch is a whole screen: half a card there means the next
+    // character only starts parsing as it arrives, and an ~85MB parse is about
+    // a second of blank card. Mounting one ahead is the difference between
+    // sliding onto a drawn card and sliding onto an empty one.
+    const pad = (mounts[0]?.card.offsetWidth ?? 0) * (MEMORY_CONSTRAINED ? 1.05 : 0.5);
     const nearby = mounts.filter(({ card }) => {
       const r = card.getBoundingClientRect();
       return r.right > -pad && r.left < window.innerWidth + pad;
@@ -699,6 +725,38 @@ function buildGridView() {
     }
     for (const { mount } of nearby) {
       if (mount(() => { if (--waitingOn <= 0) startPrefetch(); })) waitingOn++;
+    }
+    releaseDistant(nearby);
+  }
+
+  // How far past the mounted window a card gets before its character is handed
+  // back, in cards.
+  //
+  // Tight, because the budget is tight. At 85-126MB decoded per character, a
+  // phone holds about two before iOS starts killing the tab -- measured at 2.5
+  // cards of slack the carousel peaked at four resident, ~413MB, and Safari
+  // still died two slides in. Keeping the current card and the one being
+  // mounted ahead of it is roughly 200MB, which is the most this can spend.
+  //
+  // The cost of being wrong in this direction is a re-parse when you come back;
+  // the cost of being wrong in the other is a crash.
+  const RELEASE_AFTER_CARDS = 0.25;
+
+  // Only on the devices that cannot hold everything. A desktop keeps every
+  // character it has built, which is what makes paging back instant there.
+  function releaseDistant(nearby) {
+    if (!MEMORY_CONSTRAINED) return;
+    const width = mounts[0]?.card.offsetWidth ?? 0;
+    if (!width) return;
+    const keep = new Set(nearby);
+    const reach = width * RELEASE_AFTER_CARDS;
+    for (const entry of mounts) {
+      if (keep.has(entry)) continue;
+      const r = entry.card.getBoundingClientRect();
+      const past = r.right < -reach || r.left > window.innerWidth + reach;
+      // the character currently expanded is being drawn by the detail view's
+      // own viewer, which holds its own claim -- releaseModel will decline
+      if (past) entry.unmount();
     }
   }
 
