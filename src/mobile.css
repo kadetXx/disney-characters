@@ -241,7 +241,7 @@
      rail's rhythm stay put and only the glyphs move */
   .rail-tab:not(.is-active) {
     position: relative;
-    top: -0.5rem;
+    top: -0.75rem;
   }
 
   /* 28px between three items pushed them most of the way to the middle of the
