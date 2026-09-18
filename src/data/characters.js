@@ -119,7 +119,7 @@ export const characters = [
     name: "Rosetta",
     movie: "Tinkerbell",
     description:
-      "A rose fairy with a flair for the dramatic, Rosetta spends her days coaxing color into every petal in Pixie Hollow -- and reminding anyone who'll listen that a garden fairy's job is the most important one there is.",
+      "A rose fairy with a flair for the dramatic, Rosetta spends her days coaxing color into every petal in Pixie Hollow, and reminding anyone who'll listen that a garden fairy's job is the most important one there is.",
     model: MODEL_BASE + "rosetta.glb",
     gradient: ["#C2434D", "#B02D37", "#8F1F28"],
     titleTint: "#F6DCC0",
@@ -172,7 +172,7 @@ export const characters = [
     name: "Disgust",
     movie: "Inside Out",
     description:
-      "Disgust's job is to keep Riley from being poisoned -- physically and socially. Sharp-tongued and always unimpressed, she's the first to veto broccoli, bad fashion, and anything else beneath her standards.",
+      "Disgust's job is to keep Riley from being poisoned, physically and socially. Sharp-tongued and always unimpressed, she's the first to veto broccoli, bad fashion, and anything else beneath her standards.",
     model: MODEL_BASE + "disgust.glb",
     gradient: ["#7FA36E", "#4C7A3D", "#1C4029"],
     titleTint: "#D9EBB0",
@@ -250,7 +250,7 @@ export const characters = [
     name: "Vanellope",
     movie: "Wreck-It Ralph",
     description:
-      "A glitch in Sugar Rush with a mouth faster than her kart, Vanellope just wants to race -- and once Ralph's around to back her up, nobody in the arcade is going to tell her she can't.",
+      "A glitch in Sugar Rush with a mouth faster than her kart, Vanellope just wants to race, and once Ralph's around to back her up, nobody in the arcade is going to tell her she can't.",
     model: MODEL_BASE + "vanellope.glb",
     gradient: ["#7FA08F", "#427B69", "#244A3D"],
     titleTint: "#D7ECD9",

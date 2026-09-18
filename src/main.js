@@ -529,7 +529,24 @@ function buildGridView() {
     track.scrollLeft = pageOffsets()[pageHolding(entry.card)] ?? 0;
     track.style.scrollBehavior = previous;
     syncPagerState();
+    // The edge scale is a TRANSITIONED transform, and the reverse flight
+    // measures the card it is flying into in the statement after this one. Left
+    // alone, the wrap is still at its old scale in that frame and eases to the
+    // resting one over the next 260ms -- so the flight frames the character for
+    // a box 8% larger than the card ends up, carries it the whole way at that
+    // size, and drops it on landing.
+    //
+    // So the transition is suppressed for the one frame that applies the scale,
+    // exactly as scroll-behavior is overridden above so the jump is a jump. On
+    // desktop this changes nothing: the card being returned to is already at
+    // full size, so there was never a transform to transition.
+    const wraps = [...track.querySelectorAll(".char-card-canvas-wrap")];
+    for (const wrap of wraps) wrap.style.transition = "none";
     syncEdgeScale();
+    // commit the transformed box before the transition is handed back, or
+    // restoring it here would simply start the animation we just skipped
+    void track.offsetWidth;
+    for (const wrap of wraps) wrap.style.transition = "";
   }
   view.revealCard = revealCard;
 
