@@ -58,7 +58,14 @@ const TRAVEL_SECONDS = 0.62;
 // dealing itself in underneath without the two ever being in the same part of
 // the screen. Waiting for the landing outright left a beat of finished white
 // page between the loader and the content.
-const PAGE_IN_LEAD = 0.22;
+//
+// This is the lever for how connected the two read. It cannot go much past
+// half the flight: the row can only start once the sheet's white has gone, so
+// buying the cards an earlier start spends it by uncovering the page under a
+// mark that is still large and mid-screen. What makes the current value safe
+// is that the page arrives over PAGE_FADE_SECONDS rather than at once -- by
+// the time there is enough of it to see, the mark is small and nearly home.
+const PAGE_IN_LEAD = 0.3;
 const PAGE_FADE_SECONDS = 0.44;
 
 let gated = null; // the model urls this load is waiting on
