@@ -652,10 +652,18 @@ img {
      60px swing moved the active name, the next name and the chevron by up to
      32px every time you switched. Switching characters should move the
      characters, not the furniture.
-     4.6em fits the longest name at any size: the box scales with the font, and
-     so does the text inside it. Centred rather than start-aligned so shorter
-     names sit in the middle of their run instead of hanging from the top. */
-  height: 4.6em;
+
+     Sized to a TYPICAL name, not the longest. Sizing it to "Vanellope" pinned
+     the layout but left every shorter name floating in a box half empty, which
+     spread the rail out and lost the spacing the design had. At 3.35em -- the
+     mean of the six, and the same figure for both the active and the next tab
+     since they scale together -- the run matches what the rail looked like
+     before, and the two long names simply overflow it.
+
+     Overflow is the point: the box is invisible, so a name spilling past its
+     run costs nothing, while the run itself never moves. Centred so the spill
+     is symmetrical rather than hanging off one end. */
+  height: 3.35em;
   display: flex;
   align-items: center;
   justify-content: center;
