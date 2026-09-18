@@ -361,6 +361,30 @@ function buildGridView() {
         rel="noopener noreferrer"
       >Design</a>
       <a href="https://kadet.dev" target="_blank" rel="noopener noreferrer">Dev</a>
+      <!-- The "this is fan work" notice, folded into a mark rather than a line
+           of small print: the disclaimer has to be findable, but it is not
+           what the footer is for. A <button> and not a bare icon, so it is
+           reachable by keyboard and announced -- aria-describedby ties it to
+           the text, which is in the DOM rather than a title attribute (those
+           cannot be styled, take a second to appear, and are invisible to
+           touch entirely). -->
+      <button
+        class="notice"
+        type="button"
+        aria-label="About this project"
+        aria-describedby="noticeText"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="9.25" stroke="currentColor" stroke-width="1.5" />
+          <path d="M12 11V16.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          <circle cx="12" cy="7.75" r="1" fill="currentColor" />
+        </svg>
+        <span class="notice-tip" id="noticeText" role="tooltip">
+          A personal portfolio project, not affiliated with or endorsed by
+          Disney. Characters and clips are &copy; Disney; the interface is
+          <b>@realvjy</b>'s design.
+        </span>
+      </button>
     </div>
     <div class="pager">
       <button class="pager-btn" id="prevBtn" type="button" aria-label="Previous">
