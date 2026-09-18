@@ -1560,7 +1560,22 @@ function switchDetail(characterId, direction = 1) {
   const goNext = () => showDetail(nextCharacter.id);
   rail.querySelector(".rail-tab:not(.is-active)").addEventListener("click", goNext);
   rail.querySelector(".rail-chevron").addEventListener("click", goNext);
-  tl.fromTo(rail, { opacity: 0 }, { opacity: 1, duration: SWITCH_TEXT_SECONDS, ease: "power2.out" }, 0);
+
+  // The NAMES fade, and only the names.
+  //
+  // This used to fade the whole rail with a fromTo, which flashed twice over.
+  // Once because the chevron was dragged through a transition it has no part
+  // in -- it is the same arrow before and after, so animating it is pure
+  // blinking. And once because a fromTo does not apply its "from" until the
+  // timeline's first tick: the new markup above had already been painted at
+  // full opacity by then, so it appeared, snapped to nothing, and faded back
+  // in.
+  //
+  // Hiding them here, in the same synchronous task that wrote the markup,
+  // means there is no frame between the two for the browser to paint.
+  const tabs = rail.querySelectorAll(".rail-tab");
+  gsap.set(tabs, { opacity: 0 });
+  tl.to(tabs, { opacity: 1, duration: SWITCH_TEXT_SECONDS, ease: "power2.out" }, 0);
 
   const finish = () => {
     if (endActiveSwitch !== finish) return;

@@ -653,17 +653,19 @@ img {
      32px every time you switched. Switching characters should move the
      characters, not the furniture.
 
-     Sized to a TYPICAL name, not the longest. Sizing it to "Vanellope" pinned
-     the layout but left every shorter name floating in a box half empty, which
-     spread the rail out and lost the spacing the design had. At 3.35em -- the
-     mean of the six, and the same figure for both the active and the next tab
-     since they scale together -- the run matches what the rail looked like
-     before, and the two long names simply overflow it.
+     Sized to the layout the page OPENS on, measured: Rosetta active at
+     3.383em and Sadness next at 3.713em, with the pin removed. Not the longest
+     name, which left short ones floating in half-empty boxes; not the mean,
+     which was close but matched no actual state. This reproduces the original
+     desktop rail exactly -- it is the same arrangement that was always there,
+     simply held still.
+
+     The two runs differ because they are measured from different names at
+     different sizes, so each is set on its own rule below.
 
      Overflow is the point: the box is invisible, so a name spilling past its
      run costs nothing, while the run itself never moves. Centred so the spill
      is symmetrical rather than hanging off one end. */
-  height: 3.35em;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -676,6 +678,8 @@ img {
 }
 
 .rail-tab:not(.is-active) {
+  /* "Sadness", the name this slot opens on */
+  height: 3.713em;
   font-weight: 400;
   font-size: clamp(15px, 1.65vw, 23px);
   /* a touch lighter than --color-muted-2, so it recedes further behind the
@@ -684,6 +688,8 @@ img {
 }
 
 .rail-tab.is-active {
+  /* "Rosetta", the name this slot opens on */
+  height: 3.383em;
   cursor: default;
 }
 
