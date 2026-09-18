@@ -1,9 +1,30 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 const loader = new GLTFLoader();
+
+// The characters are Draco-compressed: 112MB of meshopt became 51MB, which is
+// what got them under Cloudflare Pages' 25 MiB per-file cap (moana was 27) and
+// halves every cold load into the bargain.
+//
+// The decoder is served from our own /draco/ rather than Google's CDN, because
+// script-src is 'self' and the CDN copy would simply be refused. Three files,
+// 752KB, copied from three's own examples/jsm/libs/draco/gltf.
+//
+// DRACOLoader runs the decoder in a worker built from a blob, so index.html's
+// CSP carries `worker-src 'self' blob:`. Without it the worker is refused and
+// nothing renders at all -- which is exactly how this was left last time it was
+// attempted, and why that attempt's "comparison" was a blank canvas.
+const draco = new DRACOLoader();
+draco.setDecoderPath(import.meta.env.BASE_URL + "draco/");
+loader.setDRACOLoader(draco);
+
+// Kept alongside it. Draco replaced meshopt in these files, but the two
+// extensions are independent and a glTF may carry either -- registering both
+// costs nothing and means a model dropped in with meshopt still loads.
 loader.setMeshoptDecoder(MeshoptDecoder);
 
 const modelCache = new Map();

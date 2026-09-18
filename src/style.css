@@ -159,10 +159,12 @@ img {
 
 /* The unfilled mark: quiet, but enough to hold the shape the ink is arriving
    into -- and breathing, because it is the only thing on this screen that can.
-   A character's decode takes the main thread for seconds at a time, which is
-   most of a cold load; the fill is driven from that thread and so it genuinely
-   cannot move for those seconds, and a progress bar frozen that long reads as
-   a hang. An opacity animation runs on the compositor instead, so it keeps
+   Bringing a character on screen takes the main thread for seconds at a time,
+   which is most of a cold load (profiled: two thirds of it is the shared
+   stage's readback blit in viewer.js, not the download or the decode); the
+   fill is driven from that thread and so it genuinely cannot move for those
+   seconds, and a progress bar frozen that long reads as a hang. An opacity
+   animation runs on the compositor instead, so it keeps
    going through a blocked main thread and says the one true thing available:
    still working. will-change is what gets it its own layer and therefore that
    treatment -- and it is safe here in a way it would not be on the mark
