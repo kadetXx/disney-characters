@@ -386,17 +386,22 @@ function buildGridView() {
         aria-label="About this project"
         aria-describedby="noticeText"
       >
-        <!-- A copyright mark rather than an info one, because that is what
-             this actually is: the notice it opens is about affiliation and
-             ownership, not help. It also belongs in a footer, where an "i" in
-             a circle always looks borrowed from a settings screen.
+        <!-- A heart, and not the copyright mark this replaced. Rendered beside
+             the two credits, the (c) was the heaviest thing in the row and
+             read as a legal notice stamped onto a page about cartoon
+             characters. An outline heart carries the same weight as the 14px
+             text next to it, so the row stays quiet -- and "made with care,
+             here is the fine print" is the honest tone for what this is.
 
-             2px stroke on a 24-unit circle. The earlier 1.5px read as a grey
-             smudge beside 14px text, and a solid disc read as a blob -- at
-             this size the stroke is the whole design. -->
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
-          <path d="M15 9.6a4 4 0 1 0 0 4.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+             1.9px stroke: matched by eye to the text's stem width, which is
+             what makes it sit in the row rather than on top of it. -->
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M12 20s-7-4.6-7-9.4A4 4 0 0 1 12 8a4 4 0 0 1 7 2.6C19 15.4 12 20 12 20Z"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linejoin="round"
+          />
         </svg>
         <span class="notice-tip" id="noticeText" role="tooltip"
           >A personal project, not affiliated with Disney</span
