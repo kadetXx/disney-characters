@@ -1652,10 +1652,21 @@ const CARD_EXIT_STAGGER = 0.04;
 // the very first frame of the flight and fades back in two thirds of the way
 // through -- read as a flash right at the click.
 //
-// Fades out across this window, which overlaps the detail contents fading in,
-// so the two crossfade rather than leaving a gap with no text at all.
-const CARD_TEXT_FADE_FROM = 0.5;
-const CARD_TEXT_FADE_TO = 0.95;
+// Gone BEFORE the panel's own contents arrive, rather than crossfading with
+// them.
+//
+// This used to run 0.5 -> 0.95 on power2.in, and power2.in holds a curve near
+// the top before dropping it at the end: at 0.72 of the flight -- the moment
+// the panel's text begins fading in -- the ghost was still 76% opaque. Two
+// different pieces of text sat on screen together for about 145ms, the card's
+// over the panel's. That overlap is what read as unsettling during an expand.
+//
+// It now holds while the panel is still card-sized, where there is nothing
+// else to read, then leaves on a curve that departs promptly instead of
+// lingering, finishing just before the panel's text starts. The ~37ms with no
+// text at all is invisible; two texts stacked was not.
+const CARD_TEXT_FADE_FROM = 0.3;
+const CARD_TEXT_FADE_TO = 0.66;
 // the grid footer is chrome rather than a card, so it just fades rather than
 // dropping and tilting -- but it has to go somewhere, not vanish with the grid
 const FOOTER_FADE_SECONDS = 0.22;
@@ -2011,7 +2022,10 @@ function flyToDetail(character, cardCanvas) {
     gsap.to(cardTextGhost, {
       opacity: 0,
       duration: FLIGHT_SECONDS * (CARD_TEXT_FADE_TO - CARD_TEXT_FADE_FROM),
-      ease: "power2.in",
+      // out, not in. power2.in spends its window near full opacity and dumps at
+      // the end, which is the behaviour being fixed -- this leaves promptly and
+      // eases into gone.
+      ease: "power2.out",
       delay: FLIGHT_SECONDS * CARD_TEXT_FADE_FROM,
       onComplete() {
         cardTextGhost.remove();
