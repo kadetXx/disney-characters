@@ -129,6 +129,11 @@ function whenIdle(job, timeout = 2500) {
   else setTimeout(run, 200);
 }
 
+// The phone breakpoint, matching mobile.css's own. Read per call rather than
+// captured once, so rotating the device is picked up.
+const PHONE_QUERY = "(max-width: 720px)";
+const isPhone = () => window.matchMedia(PHONE_QUERY).matches;
+
 const CORNERS = [
   "borderTopLeftRadius",
   "borderBottomLeftRadius",
@@ -1024,6 +1029,59 @@ function attachDetailSwipe(view) {
   );
 }
 
+// Turning the character with a finger.
+//
+// The cursor version follows the pointer wherever it is on the page, which a
+// finger cannot do: it is only on the glass while it is dragging. So the same
+// mapping -- YAW_SPAN of travel is worth YAW_SWING of turn -- is driven by the
+// distance dragged instead, carried on from wherever the last drag ended.
+//
+// Delegated from the view rather than bound to the canvas, for two reasons:
+// the canvas is pointer-events:none and its overscanned box lies across the
+// panel's copy anyway, so it is not a target you could aim at; and the canvas
+// is replaced outright on every character switch, which would strand a
+// listener bound to it.
+//
+// The clip row and the controls are excluded. The row is a horizontal
+// scroller, so a sideways drag there is a scroll and nothing else.
+const YAW_DRAG_IGNORE = ".detail-clips, .detail-rail, a, button";
+
+function attachMascotDrag(view) {
+  let dragging = false;
+  let startX = 0;
+  let startHeld = 0;
+
+  view.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") return;
+    if (event.target.closest?.(YAW_DRAG_IGNORE)) return;
+    dragging = true;
+    startX = event.clientX;
+    startHeld = yawHeld;
+  });
+
+  view.addEventListener(
+    "pointermove",
+    (event) => {
+      if (!dragging || event.pointerType !== "touch") return;
+      const canvas = view.querySelector(".detail-mascot-canvas");
+      const viewer = state.viewers.find((v) => v.canvas === canvas);
+      if (!viewer) return;
+      const span = Math.max(1, window.innerWidth * YAW_SPAN);
+      // the viewer clamps to its own limit, which YAW_SWING already sits at,
+      // so dragging past the end simply stops turning her
+      yawHeld = startHeld + ((event.clientX - startX) / span) * YAW_SWING;
+      viewer.setYawOffset(yawHeld);
+    },
+    { passive: true }
+  );
+
+  const end = () => {
+    dragging = false;
+  };
+  view.addEventListener("pointerup", end);
+  view.addEventListener("pointercancel", end);
+}
+
 function buildDetailView(characterId, { deferMascot = false } = {}) {
   const character = getCharacter(characterId);
   const nextCharacter = characters[(characters.findIndex((c) => c.id === characterId) + 1) % characters.length];
@@ -1075,6 +1133,7 @@ function buildDetailView(characterId, { deferMascot = false } = {}) {
   body.appendChild(canvas);
 
   attachDetailSwipe(view);
+  attachMascotDrag(view);
 
   view.appendChild(body);
 
@@ -1677,6 +1736,38 @@ const PANEL_DOWNWARD_BIAS = 0.45;
 // bottom is indistinguishable from it, and the landing hand-off is invisible.
 const PANEL_BOTTOM_OVERSHOOT = 8;
 
+// The same trick applied to the panel's far vertical edge, on phones only.
+//
+// The complaint it answers: on a phone the panel lands flush against the
+// viewport's left edge, so its right edge travels 16px while its left travels
+// 47px. The right is effectively already there, which leaves the left as the
+// only edge you actually watch -- and on power3.inOut it spends the first
+// third of the flight covering 6% of its distance. Then, at the very end, its
+// two corners crush from the card's 40px to square in the last 0.15 of the
+// move, on screen, while the edge sits at x=0.
+//
+// So the left edge does what the bottom edge already does: it keeps going
+// until its corners are entirely off the side, and never straightens at all.
+// The stylesheet's resting box -- square, flush at 0 -- is indistinguishable
+// from it, which is what makes the landing hand-off invisible.
+//
+// Desktop is untouched. Its far edge is the RIGHT one, and while it also lands
+// flush, the desktop panel's sweep is large enough and its box travels far
+// enough that the split reads correctly there.
+const PANEL_SIDE_OVERSHOOT = 8;
+
+// How much the far edge leads the near one, in the same shape as
+// PANEL_DOWNWARD_BIAS: one base ease, warped by an exponent, both ends still
+// pinned. It exists for the same reason -- an edge with three times the
+// distance to cover needs to leave earlier, or the box reads as growing from
+// one side only.
+const PANEL_SIDE_BIAS = 0.35;
+
+// The far edge only earns the overshoot where it finishes flush against the
+// viewport; anywhere else the move would be visible as the panel running
+// somewhere it does not belong.
+const EDGE_FLUSH_SLOP = 1.5;
+
 // Carries the character from its card into the detail layout as one continuous
 // move rather than cross-fading between two separately drawn copies.
 //
@@ -1873,16 +1964,31 @@ function flyToDetail(character, cardCanvas) {
       ease: "power3.inOut",
     });
 
-    // The right pair are headed for a square 0, and a corner going square while
+    // Which way the far edge would have to run to leave the screen, and whether
+    // it is worth doing: only if that edge actually lands flush against the
+    // viewport, and only on a phone.
+    const lateOnLeft = roles.growing[0] === "borderTopRightRadius";
+    const lateEdgeFlush = lateOnLeft
+      ? Math.abs(panelTo.left) <= EDGE_FLUSH_SLOP
+      : Math.abs(panelTo.right - window.innerWidth) <= EDGE_FLUSH_SLOP;
+    const sideOvershoot = isPhone() && lateEdgeFlush;
+
+    // The far pair are headed for a square 0, and a corner going square while
     // the box is still moving reads as the panel straightening out before it
     // has landed. They hold the card's own radius and only square off once the
     // box is essentially in position.
-    gsap.to(panel, {
-      ...pick(roles.late),
-      duration: FLIGHT_SECONDS * (1 - CORNER_SPLIT),
-      ease: "power2.inOut",
-      delay: FLIGHT_SECONDS * CORNER_SPLIT,
-    });
+    //
+    // Skipped entirely when the edge is leaving the screen: there, the corners
+    // hold the card's radius for the whole move and go off the side still
+    // rounded, so there is no straightening to time in the first place.
+    if (!sideOvershoot) {
+      gsap.to(panel, {
+        ...pick(roles.late),
+        duration: FLIGHT_SECONDS * (1 - CORNER_SPLIT),
+        ease: "power2.inOut",
+        delay: FLIGHT_SECONDS * CORNER_SPLIT,
+      });
+    }
 
     // Bottom-left starts on the card's radius exactly as top-left does, so it
     // can simply BE top-left for the whole move: the two rise together and the
@@ -1906,7 +2012,22 @@ function flyToDetail(character, cardCanvas) {
     // height the box currently has. Adding the overshoot to the bottom padding
     // cancels it out of the content box exactly (box-sizing is border-box
     // throughout), so the text, badge and clips sit where they always did.
-    const basePadBottom = parseFloat(getComputedStyle(panel).paddingBottom) || 0;
+    const panelStyle = getComputedStyle(panel);
+    const basePadBottom = parseFloat(panelStyle.paddingBottom) || 0;
+
+    // How far past the side the far edge has to run before its corners are out
+    // of sight: the curve occupies the last `radius` pixels of that edge, and
+    // the corners keep the card's radius the whole way, so that is the radius
+    // it started on.
+    const lateCornerRadius = Math.max(
+      ...roles.late.map((corner) => parseFloat(panelFromCorners[corner]) || 0)
+    );
+    const sideRun = sideOvershoot ? lateCornerRadius + PANEL_SIDE_OVERSHOOT : 0;
+    const lateTo = lateOnLeft ? panelTo.left - sideRun : panelTo.right + sideRun;
+    const basePadSide = parseFloat(
+      lateOnLeft ? panelStyle.paddingLeft : panelStyle.paddingRight
+    ) || 0;
+    const padSide = lateOnLeft ? "paddingLeft" : "paddingRight";
 
     // The box is driven edge by edge rather than as one rect, so the bottom
     // can run ahead of the top (see PANEL_DOWNWARD_BIAS). Both warps are of
@@ -1919,19 +2040,27 @@ function flyToDetail(character, cardCanvas) {
       const base = baseEase(t);
       const down = base ** (1 - PANEL_DOWNWARD_BIAS);
       const up = base ** (1 + PANEL_DOWNWARD_BIAS);
+      // the far edge leads the near one by the same warp, and only when it is
+      // the one running off the side -- otherwise both stay on the base curve
+      const far = sideOvershoot ? base ** (1 - PANEL_SIDE_BIAS) : base;
+      const near = sideOvershoot ? base ** (1 + PANEL_SIDE_BIAS) : base;
       const top = lerp(panelFrom.top, panelTo.top, up);
       const bottom = lerp(panelFrom.bottom, bottomTo, down);
-      const left = lerp(panelFrom.left, panelTo.left, base);
-      const right = lerp(panelFrom.right, panelTo.right, base);
-      // only what has actually gone past the fold needs cancelling; before
+      const left = lerp(panelFrom.left, lateOnLeft ? lateTo : panelTo.left, lateOnLeft ? far : near);
+      const right = lerp(panelFrom.right, lateOnLeft ? panelTo.right : lateTo, lateOnLeft ? near : far);
+      // only what has actually gone past the edge needs cancelling; before
       // that the panel is still a card-sized box on screen
       const belowFold = Math.max(0, bottom - panelTo.bottom);
+      const pastSide = lateOnLeft
+        ? Math.max(0, panelTo.left - left)
+        : Math.max(0, right - panelTo.right);
       Object.assign(panel.style, {
         left: `${left}px`,
         top: `${top}px`,
         width: `${right - left}px`,
         height: `${bottom - top}px`,
         paddingBottom: `${basePadBottom + belowFold}px`,
+        [padSide]: `${basePadSide + pastSide}px`,
         // driven here rather than as its own tween so it can track top-left
         // exactly -- see joiningCorner
         [roles.joining]: `${joiningCorner(base)}px`,
@@ -1948,7 +2077,9 @@ function flyToDetail(character, cardCanvas) {
       onComplete() {
         // hand the panel back to the stylesheet's own layout
         gsap.set(panel, {
-          clearProps: "position,zIndex,left,top,width,height,paddingBottom," + CORNERS.join(","),
+          clearProps:
+            "position,zIndex,left,top,width,height,paddingBottom,paddingLeft,paddingRight," +
+            CORNERS.join(","),
         });
         gsap.set(contents, { clearProps: "visibility" });
       },
@@ -2152,11 +2283,17 @@ let yawOrigin = null;
 let yawFrame = null;
 let lastPointer = null;
 
+// Where a touch drag left the character, so the next drag carries on from
+// there instead of snapping back to front. Reset with the rest of the yaw
+// state whenever the expanded character changes.
+let yawHeld = 0;
+
 // called whenever the expanded character changes or the view is left, so the
 // next one starts facing front and re-establishes its own neutral
 function resetYawFollow() {
   yawOrigin = null;
   lastPointer = null;
+  yawHeld = 0;
   const canvas = document.querySelector(".detail-mascot-canvas");
   state.viewers.find((v) => v.canvas === canvas)?.setYawOffset(0);
 }
@@ -2184,6 +2321,10 @@ function pointerYaw() {
 document.addEventListener(
   "pointermove",
   (event) => {
+    // A finger is not a cursor. Following it would mean the character turned
+    // as a side effect of every scroll and tap, and only while the finger was
+    // down -- so touch gets a drag instead, in attachMascotDrag below.
+    if (event.pointerType === "touch") return;
     lastPointer = event.clientX;
     // one update per frame at most; the pointer fires far more often than the
     // page can paint, and this does a DOM lookup
