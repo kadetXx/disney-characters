@@ -66,7 +66,11 @@
     /* narrower inset on small screens; the rail follows via --detail-inset */
     left: 0;
     right: var(--detail-inset);
-    border-radius: 0 clamp(44px, 13vw, 72px) 0 0;
+    /* A deeper sweep than the desktop's, proportionally. The panel is nearly
+       full width here and its corner is the one piece of the shape you can
+       actually see at this size -- at 13vw it read as a rounded box rather than
+       as the signature curve the desktop layout is built around. */
+    border-radius: 0 clamp(64px, 20vw, 104px) 0 0;
   }
 
   .detail-mascot-canvas {
@@ -208,6 +212,9 @@
   .clips-track {
     margin-right: calc(-1 * var(--panel-pad-x));
     padding-right: var(--panel-pad-x);
+    /* 20px between cards this small left the row reading as separate tiles
+       rather than one strip you scroll. Tighter, so they group. */
+    gap: 12px;
   }
 
   .clip-play {

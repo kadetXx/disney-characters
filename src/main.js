@@ -1665,8 +1665,8 @@ const CARD_EXIT_STAGGER = 0.04;
 // else to read, then leaves on a curve that departs promptly instead of
 // lingering, finishing just before the panel's text starts. The ~37ms with no
 // text at all is invisible; two texts stacked was not.
-const CARD_TEXT_FADE_FROM = 0.3;
-const CARD_TEXT_FADE_TO = 0.66;
+const CARD_TEXT_FADE_FROM = 0.2;
+const CARD_TEXT_FADE_TO = 0.46;
 // the grid footer is chrome rather than a card, so it just fades rather than
 // dropping and tilting -- but it has to go somewhere, not vanish with the grid
 const FOOTER_FADE_SECONDS = 0.22;
