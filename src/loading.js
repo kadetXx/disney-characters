@@ -150,6 +150,23 @@ function release() {
   while (heldBack.length) heldBack.shift()();
 }
 
+// Registered to run at the moment the page starts coming in from behind the
+// sheet -- after the mark has landed in the nav, not after the whole entrance
+// is over. This is the seam the grid deals its cards in on, so they arrive WITH
+// the page rather than after a beat of it sitting there complete.
+const pageInJobs = [];
+let pageArriving = !sheet;
+
+function pageIn() {
+  pageArriving = true;
+  while (pageInJobs.length) pageInJobs.shift()();
+}
+
+export function onPageIn(job) {
+  if (pageArriving) job();
+  else pageInJobs.push(job);
+}
+
 // Runs `job` once the entrance is off the screen, or straight away if it
 // already is. For work that takes the main thread away for long enough to be
 // seen: every frame of the reveal is animated from that same thread, so a
@@ -233,6 +250,9 @@ function reveal() {
     { background: "transparent", pointerEvents: "none" },
     `+=${reduced ? 0 : LANDED_SECONDS}`
   );
+  // whatever the page wants to do as it arrives, started on the same frame the
+  // fade does rather than after it
+  tl.add(pageIn);
   if (page) {
     gsap.set(page, { opacity: 0 });
     tl.to(page, { opacity: 1, duration: reduced ? 0.2 : PAGE_FADE_SECONDS, ease: "power1.out" });

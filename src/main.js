@@ -1,7 +1,7 @@
 import gsap from "gsap";
 import { characters, getCharacter, getMovie, defaultCharacterId } from "./data/characters.js";
 import { createViewer, createRenderLoop, prefetchModel, setMeshMode } from "./three/viewer.js";
-import { gateOn, modelSettled, afterEntrance } from "./loading.js";
+import { gateOn, modelSettled, afterEntrance, onPageIn } from "./loading.js";
 
 // the Google Fonts link is preloaded (not render-blocking) in the HTML head --
 // promote it to an active stylesheet once the module script runs
@@ -24,6 +24,30 @@ const PREFETCH_FALLBACK_MS = 8000;
 const CARD_DISTANCE_SCALE = 2.05;
 const MASCOT_DISTANCE_SCALE = 1.02;
 const FADE_SETTLE_TIMEOUT = 320;
+
+// How the row arrives, ported from the home cards in ~/Desktop/workstation/
+// personal/kadet.dev (v3), where the same move plays in the other direction as
+// those cards leave: --exit-reach/--exit-stagger and the --enter-* pair in its
+// src/app/globals.css, and the `card-in` keyframe in src/app/(site)/home.css.
+//
+// Longer and decelerating rather than short and accelerating, which is that
+// project's own reasoning for splitting the two: going is getting out of the
+// way and can be brisk, arriving is settling and has to land.
+const CARD_ENTER_SECONDS = 0.42;
+// cubic-bezier(0.22, 1, 0.36, 1) over there. That is the CSS spelling of a
+// quintic ease-out, and gsap's power4 IS quintic -- so this is the same curve
+// written in the other library's terms, not an eyeballed match for it.
+const CARD_ENTER_EASE = "power4.out";
+// each card starts this much after the one to its left, so the row is dealt
+// out rather than arriving as a slab. Already the number this project uses for
+// the exit ripple (CARD_EXIT_STAGGER), and the same 40ms as the portfolio's.
+const CARD_ENTER_STAGGER = 0.04;
+// How far to the right each card starts, as a share of its own width. The
+// portfolio reaches by one narrow card, ~326px against a 1440 viewport; a card
+// here is ~360px at that width, so this lands on the same distance while
+// staying proportional at the widths where these cards are much smaller.
+const CARD_ENTER_REACH = 0.9;
+const CARD_ENTER_SCALE = 0.94;
 
 const state = {
   view: "grid", // "grid" | "detail"
@@ -240,6 +264,39 @@ function buildGridView() {
   // how the reverse flight finds the card it is flying back into
   view.cardFor = (id) => mounts.find((m) => m.id === id) ?? null;
   view.otherCards = (id) => mounts.filter((m) => m.id !== id).map((m) => m.card);
+
+  // The row dealt in from the right as the page arrives from behind the
+  // loading sheet -- see onPageIn at the bottom of this file. Called on the
+  // first grid only: every later one either flies back out of the detail view
+  // or was never away.
+  //
+  // Not applied when the view is built, even though that is where a "from"
+  // state belongs: a transform changes what getBoundingClientRect reports, and
+  // mountNearby uses exactly that to decide which characters to load. Held off
+  // a card three hundred pixels to its right and the wrong four get mounted.
+  view.dealIn = () => {
+    // nothing to play back to someone who asked not to be moved -- the cards
+    // are already sitting where this would land them
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const reach = (mounts[0]?.card.offsetWidth ?? 0) * CARD_ENTER_REACH;
+    if (!reach) return;
+    gsap.fromTo(
+      mounts.map(({ card }) => card),
+      { opacity: 0, x: reach, scale: CARD_ENTER_SCALE },
+      {
+        opacity: 1,
+        x: 0,
+        scale: 1,
+        duration: CARD_ENTER_SECONDS,
+        ease: CARD_ENTER_EASE,
+        stagger: CARD_ENTER_STAGGER,
+        // handed back to its own styles the moment it lands, rather than left
+        // under an inline transform for the flight to the detail view to
+        // inherit and have to unpick
+        clearProps: "opacity,transform",
+      }
+    );
+  };
 
   // Every model starts downloading now, on-screen or not. Only the per-viewer
   // work is deferred (see mountNearby). Deferring the fetch as well was a
@@ -1354,10 +1411,13 @@ function showGrid() {
   state.view = "grid";
   // flies the character back into its card when there is one in the air to
   // fly; falls back to a plain mount otherwise (first load, or a failed flight)
-  if (flyToGrid(state.detailId)) return;
+  if (flyToGrid(state.detailId)) return null;
   const view = mount(buildGridView);
   // come back to the page the character was on, rather than always to page one
   view.revealCard?.(state.detailId);
+  // handed back so the first load can deal its cards in; every other caller
+  // ignores it
+  return view;
 }
 
 const FLIGHT_SECONDS = 0.62;
@@ -1960,4 +2020,10 @@ menuBtn?.addEventListener("click", () => {
   for (const viewer of state.viewers) viewer.render();
 });
 
-showGrid();
+// The grid is built and laid out at once -- the characters need real boxes to
+// be measured and drawn into long before anyone sees them -- but it is held
+// behind the loading sheet, and its cards are dealt in as that hands the page
+// over. First paint only; a grid returned to from the detail view flies its
+// card back instead, and one already on screen has nowhere to arrive from.
+const firstGrid = showGrid();
+onPageIn(() => firstGrid?.dealIn());
