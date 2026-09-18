@@ -68,6 +68,20 @@ button {
   padding: 0;
 }
 
+/* iOS paints a translucent grey box over anything it decides is tappable, on
+   every tap. On a page that is mostly full-bleed characters and cards it reads
+   as a flash of dirt over the artwork, and it is drawn by the browser rather
+   than by anything here. Off everywhere; the app's own hover and active states
+   say what is interactive. */
+a,
+button,
+[role="button"],
+input,
+.char-card,
+.clip-card {
+  -webkit-tap-highlight-color: transparent;
+}
+
 img {
   display: block;
 }
@@ -632,6 +646,19 @@ img {
   writing-mode: vertical-rl;
   transform: rotate(180deg);
   white-space: nowrap;
+  /* A fixed run, so the rail does not re-lay itself out per character.
+     These are vertical, so a name's LENGTH is its height -- "Vanellope" ran
+     116.7px against "Judy" at 56.7, and with the rail centre-justified that
+     60px swing moved the active name, the next name and the chevron by up to
+     32px every time you switched. Switching characters should move the
+     characters, not the furniture.
+     4.6em fits the longest name at any size: the box scales with the font, and
+     so does the text inside it. Centred rather than start-aligned so shorter
+     names sit in the middle of their run instead of hanging from the top. */
+  height: 4.6em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--font-display);
   font-weight: 500;
   font-size: clamp(26px, 3.2vw, 46px);
