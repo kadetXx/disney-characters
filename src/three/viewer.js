@@ -115,12 +115,36 @@ export function prefetchModel(url) {
   return loadModel(url);
 }
 
+// How far each model's bytes have got, kept for the whole life of the page so a
+// loading screen that starts watching late still sees what already arrived --
+// including a model the HTML preloaded, whose transfer can be over before any
+// of this runs.
+const modelBytes = new Map();
+const byteListeners = new Set();
+
+// Only ever reports what the transfer actually said. A response that arrives
+// without a length (no Content-Length) leaves the model absent from the map
+// rather than guessed at: a caller can tell "nothing known" from "0% done" and
+// decide for itself, which a fabricated total would take away.
+export function modelProgress(url) {
+  return modelBytes.get(url) ?? null;
+}
+
+export function onModelProgress(listener) {
+  byteListeners.add(listener);
+  return () => byteListeners.delete(listener);
+}
+
 function loadModel(url) {
   if (!modelCache.has(url)) {
     modelCache.set(
       url,
       loader
-        .loadAsync(url)
+        .loadAsync(url, (event) => {
+          if (!event.lengthComputable || !event.total) return;
+          modelBytes.set(url, { loaded: event.loaded, total: event.total });
+          for (const listener of byteListeners) listener(url);
+        })
         .then((gltf) => {
           applyGloss(gltf.scene);
           return gltf.scene;
@@ -131,6 +155,9 @@ function loadModel(url) {
           // detail view, the flight, a second visit -- would await the same
           // rejection with no way to try again.
           modelCache.delete(url);
+          // and the part-transferred byte count goes with it, or a retry starts
+          // out reading as already half done
+          modelBytes.delete(url);
           throw error;
         })
     );

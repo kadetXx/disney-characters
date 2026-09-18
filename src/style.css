@@ -82,6 +82,122 @@ img {
   overflow: hidden;
 }
 
+/* ---------------------------------------------------------------- */
+/* The loading gate                                                 */
+/* ---------------------------------------------------------------- */
+
+/* A plain white sheet over the whole page -- nav included -- carrying the
+   Disney mark, which fills with ink as the characters arrive.
+
+   Nothing crossfades with anything: the mark fills, then travels up into the
+   nav's own logo slot, and only once it has landed does the page come in
+   underneath it. The screen is plain white for the whole handover, so the
+   loader is never on screen at the same time as the content it was covering.
+   See src/loading.js for the order.
+
+   The page is laid out beneath the sheet from the first moment even so -- the
+   cards measure themselves and their characters draw into real canvases (see
+   syncEdgeScale, mountNearby) -- it is only hidden. Building it at the moment
+   it is uncovered would put a full layout in the middle of the reveal. */
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  /* How much of the mark is inked, 0 to 1. src/loading.js owns this from the
+     moment the bundle runs; the value here is what the mark shows until then,
+     a token amount so the sheet reads as having started rather than as an
+     empty white page with a faint smudge on it. */
+  --progress: 0.06;
+}
+
+/* Hidden, not unbuilt. Driven to full by the reveal in src/loading.js, which
+   also takes this class off at the end -- both land on 1, so the handover
+   between the two is not a change. */
+.is-loading .page {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The nav's own mark stays out of the way until the loader's has flown into
+   its place and been taken away. They are the same artwork at the same size in
+   the same spot, so the swap is invisible -- but only if they are never both
+   on screen, and never neither. */
+.is-loading .logo-mark {
+  visibility: hidden;
+}
+
+/* Both layers carry the SAME mask at the SAME box size, so the glyphs line up
+   exactly and the fill can be revealed by clipping alone. Anything that
+   changed the box -- animating width, say -- would rescale the mask with it
+   and the ink would not sit in the letters. */
+/* The aspect ratio is the mark's own, straight off disney.svg, and it matches
+   what the nav's <img> derives from `height: 30px; width: auto`. That is what
+   lets the mark land on the logo's box without being stretched to fit it.
+
+   No will-change: the flight animates this box's width and position rather
+   than transforming it (see flightToLogo), because the mask has to be redrawn
+   at each size for the mark to arrive as crisp as the logo it replaces --
+   promoting it to its own layer would be asking for exactly the cached raster
+   that causes. */
+.loading-mark {
+  position: relative;
+  width: clamp(168px, 24vw, 340px);
+  aspect-ratio: 1000 / 425.6;
+}
+
+.loading-mark-ghost,
+.loading-mark-fill {
+  position: absolute;
+  inset: 0;
+  -webkit-mask: url(/disney.svg) no-repeat center / contain;
+  mask: url(/disney.svg) no-repeat center / contain;
+}
+
+/* The unfilled mark: quiet, but enough to hold the shape the ink is arriving
+   into -- and breathing, because it is the only thing on this screen that can.
+   A character's decode takes the main thread for seconds at a time, which is
+   most of a cold load; the fill is driven from that thread and so it genuinely
+   cannot move for those seconds, and a progress bar frozen that long reads as
+   a hang. An opacity animation runs on the compositor instead, so it keeps
+   going through a blocked main thread and says the one true thing available:
+   still working. will-change is what gets it its own layer and therefore that
+   treatment -- and it is safe here in a way it would not be on the mark
+   itself, because this layer's box never changes size, and by the time the
+   flight resizes anything the fill has covered it completely. */
+.loading-mark-ghost {
+  background: #dfdfe6;
+  animation: loading-breathe 1.9s ease-in-out infinite;
+  will-change: opacity;
+}
+
+@keyframes loading-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-mark-ghost {
+    animation: none;
+  }
+}
+
+/* Black, deliberately not --color-ink: this ends the reveal sitting exactly on
+   top of the nav's <img> of disney.svg, whose paths carry no fill of their own
+   and so render pure black. Anything else here and the handover is a colour
+   change, which is the one thing the flight exists to avoid. */
+.loading-mark-fill {
+  background: #000;
+  /* inked from the left, up to --progress. inset() rather than a gradient
+     mask: the edge is meant to be a clean wipe across the letters, and a
+     second mask would have to be composited with the first. */
+  clip-path: inset(0 calc(100% - var(--progress) * 100%) 0 0);
+}
+
 /* Nav */
 .nav {
   display: flex;

@@ -41,6 +41,18 @@
     <link rel="stylesheet" href="/src/mobile.css" />
   </head>
   <body>
+    <!-- The loading gate. Written here rather than built by the bundle,
+         because the bundle is what it exists to cover: three.js plus six
+         characters' worth of setup have to load before a single line of
+         src/loading.js can run, and until then this is the only thing that
+         can be on screen. src/loading.js adopts it and lifts it away. -->
+    <div class="loading" id="loading">
+      <div class="loading-mark" id="loadingMark" role="img" aria-label="Loading">
+        <span class="loading-mark-ghost"></span>
+        <span class="loading-mark-fill"></span>
+      </div>
+    </div>
+
     <div class="page">
       <header class="nav">
         <div class="logo">

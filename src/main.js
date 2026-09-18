@@ -1,6 +1,7 @@
 import gsap from "gsap";
 import { characters, getCharacter, getMovie, defaultCharacterId } from "./data/characters.js";
 import { createViewer, createRenderLoop, prefetchModel, setMeshMode } from "./three/viewer.js";
+import { gateOn, modelSettled, afterEntrance } from "./loading.js";
 
 // the Google Fonts link is preloaded (not render-blocking) in the HTML head --
 // promote it to an active stylesheet once the module script runs
@@ -187,17 +188,26 @@ function buildCharacterCard(character) {
   let viewer = null;
   // returns true only on the call that actually creates the viewer, so a
   // caller can count how many mounts it is waiting on
-  const mount = (onReady) => {
+  const mount = (onSettled) => {
     // a deferred mount can outlive its grid -- if the view has been torn
     // down, the canvas is detached and there is nothing to draw into
     if (viewer || !canvas.isConnected) return false;
+    // Drawn or failed, nothing is still waiting on this card. Both ends are
+    // reported, because a model that cannot load would otherwise hold up the
+    // prefetch queued behind it and the loading gate held in front of it --
+    // and the page is perfectly usable with one canvas left blank.
+    const settle = () => {
+      modelSettled(character.model);
+      onSettled?.();
+    };
     viewer = createViewer(canvas, {
       modelUrl: character.model,
       ...cardFraming(character),
       yaw: ((character.yawDeg ?? 0) * Math.PI) / 180,
       rimColor: character.rimColor ?? character.gradient[0],
       spinSpeed: 0,
-      onReady,
+      onReady: settle,
+      onError: settle,
     });
     renderLoop.add(viewer);
     state.viewers.push(viewer);
@@ -220,6 +230,7 @@ function buildGridView() {
     track.appendChild(card);
     return {
       id: character.id,
+      model: character.model,
       card,
       mount,
       canvas: card.querySelector("canvas"),
@@ -460,7 +471,13 @@ function buildGridView() {
   function startPrefetch() {
     if (prefetching) return;
     prefetching = true;
-    prefetchRest();
+    // Never underneath the loading sheet. Decoding one of these costs the main
+    // thread seconds at a time, and the entrance is animated on that thread:
+    // traced on a cold load, the off-screen models starting here froze the
+    // flight into the nav for seven seconds and then finished it in a jump.
+    // The cards this buys are on the second page, which is at minimum a swipe
+    // away -- it can wait for the page to be handed over.
+    afterEntrance(prefetchRest);
   }
 
   // Cards whose model should already be in hand: anything on screen, plus half
@@ -474,14 +491,26 @@ function buildGridView() {
   // all six decoding at once simply made the visible ones queue behind the
   // ones nobody can see.
   let waitingOn = 0;
+  let gatedEntrance = false;
   function mountNearby() {
     // half a card of runway. Measured against the card, not the scrollport:
     // half a viewport is wider than the entire overflow here, so it swept in
     // all six and the deferral did nothing at all.
     const pad = (mounts[0]?.card.offsetWidth ?? 0) * 0.5;
-    for (const { card, mount } of mounts) {
+    const nearby = mounts.filter(({ card }) => {
       const r = card.getBoundingClientRect();
-      if (r.right <= -pad || r.left >= window.innerWidth + pad) continue;
+      return r.right > -pad && r.left < window.innerWidth + pad;
+    });
+    // What the loading sheet is held up by: every card of this first screenful,
+    // which is four across a desktop and one on a phone. Registered BEFORE the
+    // mounts below, so a model already in cache cannot report itself drawn
+    // before the sheet knows it was waiting for it. Only the first call counts
+    // -- see gateOn -- so a card mounted later by scrolling never re-arms it.
+    if (!gatedEntrance) {
+      gatedEntrance = true;
+      gateOn(nearby.map(({ model }) => model));
+    }
+    for (const { mount } of nearby) {
       if (mount(() => { if (--waitingOn <= 0) startPrefetch(); })) waitingOn++;
     }
   }
