@@ -112,6 +112,21 @@ function detailFraming(character) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
+// Waits for the browser to have nothing better to do. The timeout is a
+// backstop, not a target: a page that is never idle -- a pointer resting on a
+// character keeps the yaw chasing, which keeps frames coming -- would otherwise
+// never run the work at all.
+function whenIdle(job, timeout = 2500) {
+  // Called with no arguments, deliberately. requestIdleCallback hands its
+  // callback an IdleDeadline, and passing a function straight through means
+  // that object arrives as the first parameter -- which is how prefetchRest(0)
+  // silently became prefetchRest(IdleDeadline), indexed an array with it, and
+  // took the whole off-screen prefetch down on its first step.
+  const run = () => job();
+  if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout });
+  else setTimeout(run, 200);
+}
+
 const CORNERS = [
   "borderTopLeftRadius",
   "borderBottomLeftRadius",
@@ -355,36 +370,44 @@ function buildGridView() {
          profile or a portfolio home -- it is the specific thing being
          credited, and it is what someone following the link came to see. -->
     <div class="social-links">
-      <a
-        href="https://dribbble.com/shots/5874646-Disney-Characters-Web-UI"
-        target="_blank"
-        rel="noopener noreferrer"
-      >Design</a>
-      <a href="https://kadet.dev" target="_blank" rel="noopener noreferrer">Dev</a>
       <!-- The "this is fan work" notice, folded into a mark rather than a line
            of small print: the disclaimer has to be findable, but it is not
-           what the footer is for. A <button> and not a bare icon, so it is
-           reachable by keyboard and announced -- aria-describedby ties it to
-           the text, which is in the DOM rather than a title attribute (those
-           cannot be styled, take a second to appear, and are invisible to
-           touch entirely). -->
+           what the footer is for. It leads the row rather than trailing it --
+           a notice about the whole page reads as a prefix to the credits, not
+           as a third credit.
+
+           A <button> and not a bare icon, so it is reachable by keyboard and
+           announced. aria-describedby ties it to the text, which is a real
+           element rather than a title attribute: those cannot be styled, take
+           a second to appear, and do not exist on touch at all. -->
       <button
         class="notice"
         type="button"
         aria-label="About this project"
         aria-describedby="noticeText"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="12" cy="12" r="9.25" stroke="currentColor" stroke-width="1.5" />
-          <path d="M12 11V16.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-          <circle cx="12" cy="7.75" r="1" fill="currentColor" />
+        <!-- A copyright mark rather than an info one, because that is what
+             this actually is: the notice it opens is about affiliation and
+             ownership, not help. It also belongs in a footer, where an "i" in
+             a circle always looks borrowed from a settings screen.
+
+             2px stroke on a 24-unit circle. The earlier 1.5px read as a grey
+             smudge beside 14px text, and a solid disc read as a blob -- at
+             this size the stroke is the whole design. -->
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
+          <path d="M15 9.6a4 4 0 1 0 0 4.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
         </svg>
-        <span class="notice-tip" id="noticeText" role="tooltip">
-          A personal portfolio project, not affiliated with or endorsed by
-          Disney. Characters and clips are &copy; Disney; the interface is
-          <b>@realvjy</b>'s design.
-        </span>
+        <span class="notice-tip" id="noticeText" role="tooltip"
+          >A personal project, not affiliated with Disney</span
+        >
       </button>
+      <a href="https://kadet.dev" target="_blank" rel="noopener noreferrer">Code</a>
+      <a
+        href="https://dribbble.com/shots/5874646-Disney-Characters-Web-UI"
+        target="_blank"
+        rel="noopener noreferrer"
+      >Design</a>
     </div>
     <div class="pager">
       <button class="pager-btn" id="prevBtn" type="button" aria-label="Previous">
@@ -587,20 +610,34 @@ function buildGridView() {
     if (index >= mounts.length) return;
     const { card, mount } = mounts[index];
     if (!card.isConnected) return; // grid torn down; stop walking
-    const next = () => prefetchRest(index + 1);
-    // wait for each one to finish before starting the following one
+    // Wait for each one to finish before starting the following one, AND let
+    // the browser back in between them. Each mount is a synchronous block of
+    // its own that nothing can interrupt, so the only thing that can be done
+    // about a run of them is to refuse to run them back to back: two seconds
+    // frozen, a chance to respond, two more, beats four seconds frozen.
+    const next = () => whenIdle(() => prefetchRest(index + 1));
     if (!mount(next)) next();
   }
   function startPrefetch() {
     if (prefetching) return;
     prefetching = true;
-    // Never underneath the loading sheet. Bringing one of these on screen costs
-    // the main thread seconds at a time, and the entrance is animated on that
-    // thread: traced on a cold load, the off-screen models starting here froze
-    // the flight into the nav for seven seconds and then finished it in a jump.
-    // The cards this buys are on the second page, which is at minimum a swipe
-    // away -- it can wait for the page to be handed over.
-    afterEntrance(prefetchRest);
+    // Never underneath the loading sheet, and never in the beat right after it
+    // either.
+    //
+    // Bringing a character on screen costs the main thread seconds at a time --
+    // profiled at 6x CPU throttle, this work froze the page for 5.1s starting
+    // 1.2s after the reveal, and 41.6% of that window was the stage's readback
+    // blit. So the entrance ran at a clean 17ms median and then the finished
+    // page locked up, which is worse: by then it looks ready and invites a
+    // click.
+    //
+    // requestIdleCallback cannot interrupt a synchronous block, so this is not
+    // about making the work cheaper -- it is about starting it when the browser
+    // is genuinely doing nothing, rather than on a fixed timer that lands in
+    // the middle of someone reaching for a card. Nothing waits on it: these are
+    // second-page cards, and paging there runs mountNearby, which mounts what
+    // is actually needed regardless of whether this has run yet.
+    afterEntrance(() => whenIdle(prefetchRest));
   }
 
   // Cards whose model should already be in hand: anything on screen, plus half
