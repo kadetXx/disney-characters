@@ -217,16 +217,19 @@
     gap: 12px;
   }
 
+  /* Sized outright rather than scaled down. transform: scale(0.6) shrank the
+     glyph along with the disc, and the glyph could least afford it: the
+     triangle spans only a quarter of its own svg box, so 18px of svg at 0.6
+     left 2.7px of actual arrow on a 26px disc. */
   .clip-play {
-    transform: scale(0.6);
+    transform: none;
+    width: 32px;
+    height: 32px;
   }
 
-  /* held at the size it already was here: scale(0.6) above shrinks the glyph
-     along with the disc, so the base sheet's bigger icon would have grown this
-     one too -- and the phone's play button is already the size it should be */
   .clip-play svg {
-    width: 18px;
-    height: 18px;
+    width: 32px;
+    height: 32px;
   }
 
   /* Characters are framed per pose, so on a card their lowest point lands
@@ -241,7 +244,14 @@
      rail's rhythm stay put and only the glyphs move */
   .rail-tab:not(.is-active) {
     position: relative;
-    top: -0.75rem;
+    top: -1rem;
+  }
+
+  /* A CSS stroke-width beats the svg's own stroke-width attribute, so the
+     chevron thins here without touching the markup the desktop shares. 2.6 is
+     drawn at 30px on desktop; the same weight at phone scale reads heavy. */
+  .rail-chevron svg path {
+    stroke-width: 1.6;
   }
 
   /* 28px between three items pushed them most of the way to the middle of the
