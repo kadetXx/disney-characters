@@ -25,23 +25,40 @@ const CARD_DISTANCE_SCALE = 2.05;
 const MASCOT_DISTANCE_SCALE = 1.02;
 const FADE_SETTLE_TIMEOUT = 320;
 
-// How the row arrives, ported from the home cards in ~/Desktop/workstation/
-// personal/kadet.dev (v3), where the same move plays in the other direction as
-// those cards leave: --exit-reach/--exit-stagger and the --enter-* pair in its
-// src/app/globals.css, and the `card-in` keyframe in src/app/(site)/home.css.
+// How the row arrives. The shape of the move is the home cards in
+// ~/Desktop/workstation/personal/kadet.dev (v3) played the other way round --
+// --exit-reach and --exit-stagger in its src/app/globals.css, and the `card-in`
+// keyframe in src/app/(site)/home.css that already plays that exit backwards.
 //
-// Longer and decelerating rather than short and accelerating, which is that
-// project's own reasoning for splitting the two: going is getting out of the
+// The FEEL is this project's own, though: these cards leave on back.in when a
+// character is expanded, and a row that leaves with a spring and returns on a
+// plain decelerating curve is two different rooms. So the curve below is the
+// mirror of CARD_EXIT_EASE rather than the portfolio's cubic-bezier.
+//
+// Longer and decelerating rather than short and accelerating, which is the
+// portfolio's own reasoning for splitting the two: going is getting out of the
 // way and can be brisk, arriving is settling and has to land.
 const CARD_ENTER_SECONDS = 0.42;
-// cubic-bezier(0.22, 1, 0.36, 1) over there. That is the CSS spelling of a
-// quintic ease-out, and gsap's power4 IS quintic -- so this is the same curve
-// written in the other library's terms, not an eyeballed match for it.
-const CARD_ENTER_EASE = "power4.out";
-// each card starts this much after the one to its left, so the row is dealt
-// out rather than arriving as a slab. Already the number this project uses for
-// the exit ripple (CARD_EXIT_STAGGER), and the same 40ms as the portfolio's.
-const CARD_ENTER_STAGGER = 0.04;
+// The exit's back.in(2.2), turned around. Not its number, though: back's
+// overshoot is a SHARE of the distance travelled -- 15.4% at 2.2 -- and the
+// exit only drops a card 84px, so its wind-up is about 13px. The same 2.2 over
+// this move's ~324px would throw each card 50px past its slot and haul it
+// back, which is a different gesture entirely. 1.1 overshoots by 4.5%, so the
+// card sails the same ~13px past and settles: the exit's character, at the
+// exit's actual size on screen.
+const CARD_ENTER_EASE = "back.out(1.1)";
+// Kept off the spring, exactly as the exit keeps its own fade off back.in and
+// for the same reason: an overshooting curve on opacity runs past fully opaque
+// and has to come back down, which on the way IN means a card that arrives,
+// flickers and re-settles. Shorter than the travel too, so a card is solid
+// while it is still moving rather than a ghost sliding into place.
+const CARD_ENTER_FADE = 0.7;
+const CARD_ENTER_FADE_EASE = "power2.out";
+// Each card starts this much after the one to its left, so the row is dealt out
+// rather than arriving as a slab. Twice the exit's 40ms ripple: that one
+// spreads a row that is already in place, while this one has to read as four
+// separate arrivals across a full card's travel.
+const CARD_ENTER_STAGGER = 0.08;
 // How far to the right each card starts, as a share of its own width. The
 // portfolio reaches by one narrow card, ~326px against a 1440 viewport; a card
 // here is ~360px at that width, so this lands on the same distance while
@@ -280,11 +297,11 @@ function buildGridView() {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const reach = (mounts[0]?.card.offsetWidth ?? 0) * CARD_ENTER_REACH;
     if (!reach) return;
+    const cards = mounts.map(({ card }) => card);
     gsap.fromTo(
-      mounts.map(({ card }) => card),
-      { opacity: 0, x: reach, scale: CARD_ENTER_SCALE },
+      cards,
+      { x: reach, scale: CARD_ENTER_SCALE },
       {
-        opacity: 1,
         x: 0,
         scale: 1,
         duration: CARD_ENTER_SECONDS,
@@ -293,9 +310,24 @@ function buildGridView() {
         // handed back to its own styles the moment it lands, rather than left
         // under an inline transform for the flight to the detail view to
         // inherit and have to unpick
-        clearProps: "opacity,transform",
+        clearProps: "transform",
       }
     );
+    // same schedule, its own curve -- see CARD_ENTER_FADE_EASE
+    gsap.fromTo(
+      cards,
+      { opacity: 0 },
+      {
+        opacity: 1,
+        duration: CARD_ENTER_SECONDS * CARD_ENTER_FADE,
+        ease: CARD_ENTER_FADE_EASE,
+        stagger: CARD_ENTER_STAGGER,
+        clearProps: "opacity",
+      }
+    );
+    // how long the whole row takes to land, so the loading gate knows not to
+    // start anything heavy until it has -- see onPageIn
+    return CARD_ENTER_SECONDS + (cards.length - 1) * CARD_ENTER_STAGGER;
   };
 
   // Every model starts downloading now, on-screen or not. Only the per-viewer

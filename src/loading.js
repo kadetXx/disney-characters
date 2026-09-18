@@ -52,9 +52,13 @@ const CHASE_SECONDS = 0.45;
 const FILL_OUT_SECONDS = 0.3;
 const HOLD_SECONDS = 0.22;
 const TRAVEL_SECONDS = 0.62;
-// after the mark lands, before the page starts arriving: without it the two
-// read as one movement and the landing is lost inside the page's entrance
-const LANDED_SECONDS = 0.1;
+// How long BEFORE the mark lands the page starts arriving. The two overlap
+// rather than queue: power3.inOut spends its last stretch barely moving, so by
+// this point the mark is up in the nav and all but home, and the row can start
+// dealing itself in underneath without the two ever being in the same part of
+// the screen. Waiting for the landing outright left a beat of finished white
+// page between the loader and the content.
+const PAGE_IN_LEAD = 0.22;
 const PAGE_FADE_SECONDS = 0.44;
 
 let gated = null; // the model urls this load is waiting on
@@ -157,9 +161,19 @@ function release() {
 const pageInJobs = [];
 let pageArriving = !sheet;
 
+// A job may report how long its own arrival takes, in seconds. The heavy work
+// held by afterEntrance is let go once the LONGEST of them has landed, not when
+// the sheet's own timeline runs out: the row deals itself in over most of a
+// second, well past the end of the reveal, and a decode started underneath it
+// freezes the last cards halfway exactly as it used to freeze the flight.
 function pageIn() {
   pageArriving = true;
-  while (pageInJobs.length) pageInJobs.shift()();
+  let longest = PAGE_FADE_SECONDS;
+  while (pageInJobs.length) {
+    const spent = pageInJobs.shift()();
+    if (typeof spent === "number" && spent > longest) longest = spent;
+  }
+  gsap.delayedCall(longest, release);
 }
 
 export function onPageIn(job) {
@@ -195,7 +209,6 @@ function reveal() {
   const landing = logo && mark ? flightToLogo(logo) : null;
 
   const done = () => {
-    release();
     // One frame, one swap: the nav's own mark becomes visible and the flown one
     // is taken off the page in the same breath. They are identical and exactly
     // on top of each other, so there is nothing to see -- but leave a gap
@@ -245,17 +258,22 @@ function reveal() {
   // the page behind is the same white and still hidden -- but it is what makes
   // the next step a reveal of the content rather than a crossfade of two
   // full-screen layers.
+  // All three on the same frame -- "<" is the start of the one before, so the
+  // lead is applied once and the rest follow it rather than queueing after the
+  // flight the way an appended tween would.
   tl.set(
     sheet,
     { background: "transparent", pointerEvents: "none" },
-    `+=${reduced ? 0 : LANDED_SECONDS}`
+    reduced ? "+=0" : `-=${PAGE_IN_LEAD}`
   );
-  // whatever the page wants to do as it arrives, started on the same frame the
-  // fade does rather than after it
-  tl.add(pageIn);
+  tl.add(pageIn, "<");
   if (page) {
     gsap.set(page, { opacity: 0 });
-    tl.to(page, { opacity: 1, duration: reduced ? 0.2 : PAGE_FADE_SECONDS, ease: "power1.out" });
+    tl.to(
+      page,
+      { opacity: 1, duration: reduced ? 0.2 : PAGE_FADE_SECONDS, ease: "power1.out" },
+      "<"
+    );
   }
 }
 
