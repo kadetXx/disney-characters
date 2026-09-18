@@ -567,11 +567,61 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     }
   );
 
+  // Whether this canvas is anywhere near the screen. Drawing costs a readback
+  // from the shared WebGL context into this canvas's own 2D context, and
+  // profiling a cold load put two thirds of the main thread's time in exactly
+  // that blit -- so a character sitting on the carousel's second page is
+  // seconds of work for pixels nobody can see.
+  //
+  // Starts true: a viewer built for the flight, or for the detail view, is
+  // wanted on screen immediately and must not wait for an observer callback
+  // that arrives a frame later.
+  // Measured synchronously, at the moment of drawing. An IntersectionObserver
+  // alone cannot do this job: its callbacks are delivered asynchronously, so
+  // during a burst of mounts -- precisely the case this exists to cut -- the
+  // main thread is blocked and no observer entry can arrive until the work is
+  // already done. Every viewer would still believe it was on screen and blit
+  // anyway, which is exactly what the first attempt at this measured.
+  //
+  // A getBoundingClientRect per draw is a forced layout, and worth it: it is
+  // orders of magnitude cheaper than the readback it prevents, and these
+  // scenes only draw when something has actually changed.
+  function isOnScreen() {
+    const r = canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    const pad = Math.max(window.innerWidth, window.innerHeight) * 0.5;
+    return (
+      r.bottom > -pad &&
+      r.top < window.innerHeight + pad &&
+      r.right > -pad &&
+      r.left < window.innerWidth + pad
+    );
+  }
+
+  // The observer is still worth keeping, for the other half of the problem:
+  // noticing that a deferred canvas has come into view while nothing else is
+  // invalidating it, and paying the draw then.
+  const visibility = new IntersectionObserver(
+    ([entry]) => {
+      if (entry.isIntersecting && needsRender) render();
+    },
+    // Half a screen of runway, so a card is drawn before it is reached rather
+    // than at the moment it arrives. Deliberately not a full screen: on a
+    // phone the carousel's pitch IS one screen, so a full-screen margin would
+    // sweep in the next card and defeat the whole point -- and a phone is
+    // exactly where the saved work matters most.
+    { rootMargin: "50%" }
+  );
+  visibility.observe(canvas);
+
   // Draws now rather than waiting for the loop's next frame. The flight needs
   // this: gsap's ticker and the render loop are separate rAF callbacks, so
   // relying on the loop leaves the canvas showing last frame's content.
   function render() {
     if (disposed) return;
+    // Deliberately leaves needsRender set: this is deferred, not skipped, and
+    // the observer above pays it the moment the canvas is worth drawing into.
+    if (!isOnScreen()) return;
     needsRender = false;
     draw(scene, camera, canvas, cssWidth, cssHeight);
   }
@@ -595,6 +645,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   function dispose() {
     disposed = true;
+    visibility.disconnect();
     resizeObserver.disconnect();
     // Nothing GPU-side to tear down: the context, its uploaded textures and
     // the environment map are the shared stage's and outlive this viewer --

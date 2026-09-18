@@ -468,10 +468,6 @@ img {
   display: flex;
   flex-direction: row;
   gap: 28px;
-  /* the positioning context for .notice-tip: anchored to this row's left edge
-     rather than to the mark itself, which sits a variable distance in and
-     would push a wide tip off a narrow screen */
-  position: relative;
 }
 
 .social-links a {
@@ -488,6 +484,7 @@ img {
 /* The disclaimer mark. Sits in the same row as the credits and matches their
    colour, so it reads as part of that group rather than as a warning. */
 .notice {
+  position: relative;
   display: flex;
   align-items: center;
   color: var(--color-muted-2);
@@ -501,61 +498,39 @@ img {
   color: var(--color-ink);
 }
 
-/* Hidden by opacity rather than display, so it can fade -- and pulled out of
-   the accessibility tree with aria-hidden's visual equivalent: it keeps its
-   place in the DOM for aria-describedby to point at either way. */
+/* Opens to the right of the mark, on one line. White rather than inverted: the
+   footer is the quietest part of a white page and a black slab dropped into it
+   reads as an error, not a footnote. The hairline and the shadow are what lift
+   it off the page instead. */
 .notice-tip {
   position: absolute;
-  bottom: calc(100% + 10px);
-  left: 0;
-  width: max-content;
-  /* It is two or three lines of real text, so it needs a measure; without this
-     it runs the full width of the viewport as one line. The viewport term is
-     what keeps it on screen at 390px, where 300px starting from this row would
-     hang off the right edge -- the row sits at the footer's own padding, so
-     subtracting that padding twice is exactly the room available. */
-  max-width: min(300px, calc(100vw - 2 * var(--nav-pad-x)));
-  padding: 10px 13px;
-  border-radius: 10px;
-  background: var(--color-ink);
-  color: #fff;
+  left: calc(100% + 9px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  padding: 7px 11px;
+  border-radius: 8px;
+  background: var(--color-bg);
+  border: 1px solid rgb(0 0 0 / 0.07);
+  color: var(--color-muted);
   font-family: var(--font-body);
-  font-size: 12.5px;
-  line-height: 18px;
-  text-align: left;
-  white-space: normal;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.16);
+  font-size: 12px;
+  line-height: 16px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.08);
   opacity: 0;
-  transform: translateY(3px);
-  transition: opacity 160ms ease, transform 160ms ease;
-  /* never intercepts the pointer: the tip sits directly above its own trigger,
-     so a tip that took hits would flicker as the cursor crossed into it */
+  transition: opacity 140ms ease;
+  /* never intercepts the pointer: it sits right beside its own trigger, so a
+     tip that took hits would flicker as the cursor crossed into it */
   pointer-events: none;
-}
-
-.notice-tip b {
-  font-weight: 500;
-  color: #fff;
 }
 
 /* :focus, not :focus-visible. A tap on a touch screen focuses the button but
    does not match :focus-visible, which is keyboard-only -- so the disclaimer
-   would have been unreachable on a phone, where there is no hover either. The
-   cost is that a mouse click also leaves it open until you click away, which
-   for a notice is fine. */
+   would have been unreachable on a phone, where there is no hover either. */
 .notice:hover .notice-tip,
 .notice:focus .notice-tip {
   opacity: 1;
-  transform: translateY(0);
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .notice-tip {
-    transition: none;
-    transform: none;
-  }
-}
-
 
 .pager {
   display: flex;

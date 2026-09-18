@@ -228,4 +228,5 @@
   .char-card-canvas-wrap canvas {
     top: calc(-44% + var(--card-nudge, 0px));
   }
+
 }
