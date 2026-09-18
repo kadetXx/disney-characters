@@ -127,26 +127,14 @@ function applyGloss(root) {
   });
 }
 
-// Pulls a model's BYTES into the HTTP cache without decoding it.
+// Fetches a model's BYTES without decoding it. Bytes early, decode late: the
+// fetch has to start now (deferring it left cards blank for seconds) while the
+// parse is the expensive half and must wait for something to actually want it.
 //
-// This used to call loadModel, which parses as well -- and parsing is the
-// expensive half by a wide margin. Decoded, the six characters are ~580MB of
-// vertex and index buffers on the CPU (moana alone is 126MB, 3M triangles) and
-// roughly as much again once uploaded. Doing that for all six at page load is
-// about a gigabyte, which iOS Safari answers by killing the tab: the page
-// reloads, reloads again, then shows "a problem repeatedly occurred".
-//
-// The original reasoning still holds and is preserved here -- deferring the
-// FETCH was a mistake, because paging to the second screenful left those cards
-// blank for eleven seconds waiting on bytes nobody had asked for. Bytes early,
-// decode late. The bug was that one call did both.
-//
-// The bytes are held rather than left to the HTTP cache, because loadModel
-// parses straight out of them. That avoids the obvious trap in fetching and
-// parsing separately -- two requests racing for the same URL, which browsers
-// do not reliably coalesce, so a cold load would pull every model twice. All
-// six as compressed GLB is 51MB, and each buffer is dropped the moment it has
-// been parsed.
+// The buffer is held rather than left to the HTTP cache so loadModel can parse
+// straight out of it -- fetching and parsing as two requests would race for the
+// same URL, which browsers do not reliably coalesce, and pull every model
+// twice. Dropped as soon as it is parsed.
 const byteCache = new Map();
 
 export function prefetchModel(url) {
@@ -697,16 +685,10 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   // Starts true: a viewer built for the flight, or for the detail view, is
   // wanted on screen immediately and must not wait for an observer callback
   // that arrives a frame later.
-  // Measured synchronously, at the moment of drawing. An IntersectionObserver
-  // alone cannot do this job: its callbacks are delivered asynchronously, so
-  // during a burst of mounts -- precisely the case this exists to cut -- the
-  // main thread is blocked and no observer entry can arrive until the work is
-  // already done. Every viewer would still believe it was on screen and blit
-  // anyway, which is exactly what the first attempt at this measured.
-  //
-  // A getBoundingClientRect per draw is a forced layout, and worth it: it is
-  // orders of magnitude cheaper than the readback it prevents, and these
-  // scenes only draw when something has actually changed.
+  // Measured synchronously, and it has to be. An IntersectionObserver delivers
+  // asynchronously, so during a burst of mounts -- the case this exists to cut
+  // -- the main thread is blocked and no entry arrives until the work is done.
+  // The forced layout is far cheaper than the readback it prevents.
   function isOnScreen() {
     const r = canvas.getBoundingClientRect();
     if (!r.width || !r.height) return false;

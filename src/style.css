@@ -536,6 +536,11 @@ img {
   font-size: 12px;
   line-height: 16px;
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.08);
+  /* above the pager at the other end of the row. A disabled pager button drops
+     to opacity 0.3, and opacity below 1 makes a stacking context -- so it
+     painted at the same level as this and won on DOM order, putting "Prev"
+     through the middle of the text. */
+  z-index: 2;
   opacity: 0;
   transition: opacity 140ms ease;
   /* never intercepts the pointer: it sits right beside its own trigger, so a

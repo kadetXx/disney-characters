@@ -31,19 +31,10 @@ const CARD_DISTANCE_SCALE = 2.05;
 const MASCOT_DISTANCE_SCALE = 1.02;
 const FADE_SETTLE_TIMEOUT = 320;
 
-// How the row arrives. The shape of the move is the home cards in
-// ~/Desktop/workstation/personal/kadet.dev (v3) played the other way round --
-// --exit-reach and --exit-stagger in its src/app/globals.css, and the `card-in`
-// keyframe in src/app/(site)/home.css that already plays that exit backwards.
-//
-// The FEEL is this project's own, though: these cards leave on back.in when a
-// character is expanded, and a row that leaves with a spring and returns on a
-// plain decelerating curve is two different rooms. So the curve below is the
-// mirror of CARD_EXIT_EASE rather than the portfolio's cubic-bezier.
-//
-// Longer and decelerating rather than short and accelerating, which is the
-// portfolio's own reasoning for splitting the two: going is getting out of the
-// way and can be brisk, arriving is settling and has to land.
+// How the row arrives. Shape ported from the home cards in kadet.dev (v3),
+// played backwards; the easing is this project's own, mirroring CARD_EXIT_EASE
+// so leaving and arriving belong to the same room. Longer and decelerating
+// than the exit: going gets out of the way, arriving has to land.
 const CARD_ENTER_SECONDS = 0.42;
 // The exit's back.in(2.2), turned around. Not its number, though: back's
 // overshoot is a SHARE of the distance travelled -- 15.4% at 2.2 -- and the
@@ -118,19 +109,10 @@ function detailFraming(character) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-// Whether this device can afford to hold characters it is not showing.
-//
-// Decoded, the six come to ~580MB of vertex and index buffers on the CPU and
-// roughly as much again once uploaded -- moana alone is 126MB for 3M triangles.
-// A desktop shrugs at that. A phone does not: iOS Safari kills the tab, which
-// surfaces as the page reloading over and over and then "a problem repeatedly
-// occurred". So on a small screen nothing is mounted speculatively; only the
-// cards actually reached get built, and paging pays for them then.
-//
-// Screen width is the signal that matters because it is the one iOS gives us --
-// deviceMemory is Chromium-only and absent in exactly the browser that has the
-// problem. It is used when present as a second way in, for a low-memory
-// Android that happens to have a wide screen.
+// Whether this device can afford to hold characters it is not showing. A phone
+// cannot: holding all six kills the tab on iOS. Width is the signal because it
+// is the one iOS gives us -- deviceMemory is Chromium-only, absent in exactly
+// the browser with the problem, so it only serves as a second way in.
 const MEMORY_CONSTRAINED =
   (navigator.deviceMemory !== undefined && navigator.deviceMemory <= 4) ||
   window.matchMedia("(max-width: 900px)").matches;
@@ -140,11 +122,8 @@ const MEMORY_CONSTRAINED =
 // character keeps the yaw chasing, which keeps frames coming -- would otherwise
 // never run the work at all.
 function whenIdle(job, timeout = 2500) {
-  // Called with no arguments, deliberately. requestIdleCallback hands its
-  // callback an IdleDeadline, and passing a function straight through means
-  // that object arrives as the first parameter -- which is how prefetchRest(0)
-  // silently became prefetchRest(IdleDeadline), indexed an array with it, and
-  // took the whole off-screen prefetch down on its first step.
+  // called with no arguments, deliberately: requestIdleCallback passes an
+  // IdleDeadline, which a callback taking an index would silently use as one
   const run = () => job();
   if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout });
   else setTimeout(run, 200);
@@ -1667,19 +1646,10 @@ const CARD_EXIT_STAGGER = 0.04;
 // the very first frame of the flight and fades back in two thirds of the way
 // through -- read as a flash right at the click.
 //
-// Gone BEFORE the panel's own contents arrive, rather than crossfading with
-// them.
-//
-// This used to run 0.5 -> 0.95 on power2.in, and power2.in holds a curve near
-// the top before dropping it at the end: at 0.72 of the flight -- the moment
-// the panel's text begins fading in -- the ghost was still 76% opaque. Two
-// different pieces of text sat on screen together for about 145ms, the card's
-// over the panel's. That overlap is what read as unsettling during an expand.
-//
-// It now holds while the panel is still card-sized, where there is nothing
-// else to read, then leaves on a curve that departs promptly instead of
-// lingering, finishing just before the panel's text starts. The ~37ms with no
-// text at all is invisible; two texts stacked was not.
+// It must be GONE before the panel's own text arrives, not crossfaded with it
+// -- two pieces of text stacked mid-flight is what reads as unsettling. Hence
+// the early window and the out curve: an in curve holds near full opacity and
+// dumps at the end, which is exactly the overlap being avoided.
 const CARD_TEXT_FADE_FROM = 0.2;
 const CARD_TEXT_FADE_TO = 0.46;
 // the grid footer is chrome rather than a card, so it just fades rather than
