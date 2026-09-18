@@ -197,6 +197,66 @@ export function onModelProgress(listener) {
   return () => byteListeners.delete(listener);
 }
 
+// How many live viewers are drawing each character. A cached scene cannot be
+// torn down while anything still clones it -- clone(true) shares geometry and
+// materials by reference, so disposing them underneath a live viewer leaves it
+// drawing freed buffers.
+const modelUsers = new Map();
+
+// dev-only: what is actually RESIDENT, which is not what is on screen. A
+// released card keeps its last drawn pixels, so counting canvases that look
+// filled measures appearance and says nothing about memory.
+if (import.meta.env.DEV) {
+  window.__models = () => ({
+    parsed: [...modelCache.keys()].map((u) => u.split("/").pop().replace(".glb", "")),
+    inUse: [...modelUsers.keys()].map((u) => u.split("/").pop().replace(".glb", "")),
+  });
+}
+
+const holdModel = (url) => modelUsers.set(url, (modelUsers.get(url) ?? 0) + 1);
+const dropModel = (url) => {
+  const n = (modelUsers.get(url) ?? 0) - 1;
+  if (n > 0) modelUsers.set(url, n);
+  else modelUsers.delete(url);
+};
+
+// Frees a character's geometry, materials and textures, and forgets the parsed
+// scene so a later viewer re-parses from scratch.
+//
+// This is the other half of not decoding all six up front: without it, paging
+// across a carousel mounts them one by one until every character is resident
+// again and a phone is back where it started -- about 580MB, which is what iOS
+// Safari kills the tab over. Returns false, and keeps everything, if any viewer
+// is still using this character.
+export function releaseModel(url) {
+  if (modelUsers.has(url) || !modelCache.has(url)) return false;
+  const cached = modelCache.get(url);
+  modelCache.delete(url);
+  modelBytes.delete(url);
+  byteCache.delete(url);
+  cached
+    .then((scene) => {
+      scene.traverse((object) => {
+        object.geometry?.dispose();
+        for (const material of [].concat(object.material ?? [])) {
+          // the stashed map from mesh mode is the same texture object, so it
+          // is covered by disposing `map` -- but clear it so nothing holds a
+          // reference to a freed texture
+          material.userData.texturedMap = undefined;
+          for (const key of ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap"]) {
+            material[key]?.dispose();
+          }
+          // drop it from the shared set too, or mesh mode keeps walking
+          // materials that no longer belong to anything
+          characterMaterials.delete(material);
+          material.dispose();
+        }
+      });
+    })
+    .catch(() => {});
+  return true;
+}
+
 // Parses, and caches the parsed scene. This is the expensive half -- ~85MB of
 // buffers for a typical character, 126MB for moana -- so it happens only for a
 // character something actually wants to draw, never speculatively for all six.
@@ -452,6 +512,9 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
 
   let disposed = false;
   let currentModel = null;
+  // which character this viewer is holding a claim on, so dispose() can release
+  // exactly one and setModel can hand the claim over when it swaps
+  let heldUrl = null;
   // the model's measured bounds plus whichever framing is currently applied,
   // held so framing can be re-derived on resize (the fit depends on aspect)
   // and driven frame by frame during the flight
@@ -506,6 +569,13 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     if (currentModel) {
       rig.remove(currentModel);
       currentModel = null;
+    }
+    // claimed before the load resolves, so a release that lands while this is
+    // in flight cannot free the scene out from under it
+    if (heldUrl !== url) {
+      if (heldUrl) dropModel(heldUrl);
+      heldUrl = url;
+      holdModel(url);
     }
     return loadModel(url).then((source) => {
       if (disposed) return;
@@ -698,6 +768,12 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
     disposed = true;
     visibility.disconnect();
     resizeObserver.disconnect();
+    // give up the claim; the character itself is only freed once every viewer
+    // of it has done the same, and someone asks -- see releaseModel
+    if (heldUrl) {
+      dropModel(heldUrl);
+      heldUrl = null;
+    }
     // Nothing GPU-side to tear down: the context, its uploaded textures and
     // the environment map are the shared stage's and outlive this viewer --
     // that persistence is the entire point. Geometry and materials belong to
