@@ -1652,11 +1652,48 @@ function switchDetail(characterId, direction = 1) {
       el.classList.remove("switch-pane");
       gsap.set(el, { clearProps: "opacity,transform" });
     }
+    // only now: until oldCanvas is off the screen and out of the DOM, the
+    // character it was drawing is still being looked at
+    releaseAwayFromDetail(characterId);
   };
   endActiveSwitch = finish;
   tl.eventCallback("onComplete", finish);
 
   return true;
+}
+
+// The expanded view's half of the sliding window.
+//
+// The grid has had one since the models were three times the size: mountNearby
+// keeps the cards within a card's reach of the screen and releaseDistant hands
+// back everything past it, so paging the carousel on a phone holds three
+// characters and no more.
+//
+// Switching characters INSIDE the expanded view had no equivalent, and the
+// omission is invisible from the code that does it: clearViewers disposes each
+// viewer, which gives up its claim on the model, but giving up a claim is not
+// the same as freeing it. releaseModel is the only thing that drops the parsed
+// scene and its geometry, and nothing on this path called it -- so every
+// character visited here stayed decoded. Measured: switching through all six
+// left all six resident, which is the condition that used to kill the tab.
+//
+// Keeps the same three the grid keeps: the character on screen and the one
+// either side of it, which are what a swipe in either direction reaches and
+// what the rail names. releaseModel declines to free anything still claimed by
+// a live viewer, so this cannot pull a character out from under the view.
+function releaseAwayFromDetail(characterId) {
+  if (!MEMORY_CONSTRAINED) return;
+  const index = characters.findIndex((c) => c.id === characterId);
+  if (index < 0) return;
+  const count = characters.length;
+  const keep = new Set([
+    characterId,
+    characters[(index + 1) % count].id,
+    characters[(index - 1 + count) % count].id,
+  ]);
+  for (const character of characters) {
+    if (!keep.has(character.id)) releaseModel(character.model);
+  }
 }
 
 // A playing embed is a live document with sound, and the flight back to the
