@@ -1227,10 +1227,18 @@ function mount(buildFn, { fade = true } = {}) {
 // until then.
 const CARD_RETURN_SECONDS = 0.3;
 const CARD_RETURN_DELAY = 0.55;
-// back.in read backwards. The cards leave on CARD_EXIT_EASE, a spring that
-// winds up before it goes; returning on its mirror makes the two halves one
-// motion rather than an exit with a fade for a partner.
-const CARD_RETURN_EASE = "back.out(2.2)";
+// back.in read backwards, softened. The cards leave on CARD_EXIT_EASE, a
+// spring that winds up before it goes, and returning on its curve makes the
+// two halves one motion rather than an exit with a fade for a partner.
+//
+// Not the exact mirror, though, because the two ends can afford different
+// amounts of spring. Leaving, the overshoot happens as the card is already
+// fading and heading off the page. Arriving, it happens at the end, on a card
+// that has landed and is fully opaque, where it reads as a bounce rather than
+// as weight. back.out(2.2) peaks 15.4% past the target -- 13px above rest for
+// the nearest card and 20px for the outermost, which drop further. This peaks
+// at 9%.
+const CARD_RETURN_EASE = "back.out(1.6)";
 // The footer lands last of everything, a touch behind the cards it sits under.
 const FOOTER_RETURN_DELAY = 0.92;
 const FOOTER_RETURN_SECONDS = 0.5;
