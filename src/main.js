@@ -1237,8 +1237,9 @@ const CARD_RETURN_DELAY = 0.55;
 // that has landed and is fully opaque, where it reads as a bounce rather than
 // as weight. back.out(2.2) peaks 15.4% past the target -- 13px above rest for
 // the nearest card and 20px for the outermost, which drop further. This peaks
-// at 9%.
-const CARD_RETURN_EASE = "back.out(1.6)";
+// at 7.1%: 5.9px and 9.3px. Chosen by feel on a device, from 2.2, 1.6, 1.4,
+// 1.2 and 1.
+const CARD_RETURN_EASE = "back.out(1.4)";
 // The footer lands last of everything, a touch behind the cards it sits under.
 const FOOTER_RETURN_DELAY = 0.92;
 const FOOTER_RETURN_SECONDS = 0.5;
