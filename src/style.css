@@ -739,6 +739,13 @@ img {
   bottom: 0;
   border-radius: clamp(64px, 11vw, 180px) 0 0 0;
   padding: clamp(26px, 4vw, 60px) var(--panel-pad-x);
+  /* The card's own shadow, carried through rather than dropped. The flight
+     grows a .detail-panel starting at exactly the card panel's box, so a
+     shadow here and none there meant it vanished on the first frame and came
+     back at the landing. At rest only the top and the sweep can show it --
+     the other two edges sit on the viewport -- which reads as the panel
+     lifting off the page. */
+  box-shadow: 0 18px 30px -10px rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
   justify-content: space-between;

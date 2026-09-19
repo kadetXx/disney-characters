@@ -1504,6 +1504,10 @@ function flyToGrid(characterId) {
           height: `${bottom - top}px`,
           paddingBottom: `${basePadBottom + belowFold}px`,
           [padSide]: `${basePadSide + pastSide}px`,
+          // as on the way out: keep the gradient's dark corner on the part of
+          // the box anyone can see, rather than out past the screen edge
+          backgroundSize: `${right - left - pastSide}px ${bottom - top - belowFold}px`,
+          backgroundPosition: `${sweepOnLeft ? 0 : pastSide}px 0px`,
           ...Object.fromEntries(CORNERS.map((corner) => [corner, `${radius}px`])),
         });
       },
@@ -2287,6 +2291,13 @@ function flyToDetail(character, cardCanvas) {
         height: `${bottom - top}px`,
         paddingBottom: `${basePadBottom + belowFold}px`,
         [padSide]: `${basePadSide + pastSide}px`,
+        // The panel's gradient runs 135deg, so its darkest stop sits at the
+        // box's bottom-right -- and the overshoot puts that corner off the
+        // screen, draining the tint mid-flight and snapping it back at the
+        // landing. Sizing the background to what is actually visible pins the
+        // dark end to the corner the eye can see, all the way through.
+        backgroundSize: `${right - left - pastSide}px ${bottom - top - belowFold}px`,
+        backgroundPosition: `${lateOnLeft ? pastSide : 0}px 0px`,
         // One radius on every corner, all the way. The panel in flight is a
         // single shape rather than one signature corner and three leftovers
         // from the card -- which is what it looked like when the far pair held
@@ -2313,7 +2324,8 @@ function flyToDetail(character, cardCanvas) {
         // hand the panel back to the stylesheet's own layout
         gsap.set(panel, {
           clearProps:
-            "position,zIndex,left,top,width,height,paddingBottom,paddingLeft,paddingRight," +
+            "position,zIndex,left,top,width,height,paddingBottom,paddingLeft," +
+            "paddingRight,backgroundSize,backgroundPosition," +
             CORNERS.join(","),
         });
         gsap.set(contents, { clearProps: "visibility" });
