@@ -1445,6 +1445,39 @@ function flyToGrid(characterId) {
       onComplete: () => gsap.set(detailContents, { visibility: "hidden" }),
     });
 
+    // The mirror of the expansion's corner handling.
+    //
+    // Lerping each corner from its own resting value to the card's meant the
+    // two that rest square STARTED square -- the bottom-right of a panel that
+    // is visibly a rounded sheet appeared as a hard point, then rounded up on
+    // screen as it shrank. The expansion had the same fault in reverse and was
+    // fixed the same way: one radius on all four corners, and the edges that
+    // rest against the screen begin a full radius beyond it, so those corners
+    // are out of sight at the moment they would have given the game away.
+    const roles = cornerRoles(panelFromCorners);
+    const [growingCorner] = roles.growing;
+    const fromRadius = parseFloat(panelFromCorners[growingCorner]) || 0;
+    const toRadius = parseFloat(panelToCorners[growingCorner]) || 0;
+
+    // which edges rest on the viewport and therefore have somewhere to hide
+    const sweepOnLeft = growingCorner === "borderTopLeftRadius";
+    const farEdgeFlush = sweepOnLeft
+      ? Math.abs(panelFrom.right - window.innerWidth) <= EDGE_FLUSH_SLOP
+      : Math.abs(panelFrom.left) <= EDGE_FLUSH_SLOP;
+    const bottomFlush = Math.abs(panelFrom.bottom - window.innerHeight) <= EDGE_FLUSH_SLOP;
+    const run = fromRadius + PANEL_SIDE_OVERSHOOT;
+
+    // where the panel actually starts: its resting box, pushed out on whichever
+    // edges can take it, so nothing about the first frame looks different
+    const startRight = farEdgeFlush && !sweepOnLeft ? panelFrom.right : panelFrom.right + (farEdgeFlush ? run : 0);
+    const startLeft = farEdgeFlush && !sweepOnLeft ? panelFrom.left - run : panelFrom.left;
+    const startBottom = bottomFlush ? panelFrom.bottom + run : panelFrom.bottom;
+
+    const panelStyle = getComputedStyle(detailPanel);
+    const basePadBottom = parseFloat(panelStyle.paddingBottom) || 0;
+    const padSide = sweepOnLeft ? "paddingRight" : "paddingLeft";
+    const basePadSide = parseFloat(panelStyle[padSide]) || 0;
+
     const baseEase = gsap.parseEase("power3.inOut");
     const shrink = { t: 0 };
     gsap.to(shrink, {
@@ -1453,17 +1486,25 @@ function flyToGrid(characterId) {
       ease: "none",
       onUpdate() {
         const e = baseEase(shrink.t);
+        const left = lerp(startLeft, panelTo.left, e);
+        const right = lerp(startRight, panelTo.right, e);
+        const top = lerp(panelFrom.top, panelTo.top, e);
+        const bottom = lerp(startBottom, panelTo.bottom, e);
+        // only what is still past the edge needs cancelling out of the content
+        // box; once the panel is inside the viewport there is nothing to cancel
+        const belowFold = Math.max(0, bottom - window.innerHeight);
+        const pastSide = sweepOnLeft
+          ? Math.max(0, right - window.innerWidth)
+          : Math.max(0, -left);
+        const radius = lerp(fromRadius, toRadius, e);
         Object.assign(detailPanel.style, {
-          left: `${lerp(panelFrom.left, panelTo.left, e)}px`,
-          top: `${lerp(panelFrom.top, panelTo.top, e)}px`,
-          width: `${lerp(panelFrom.width, panelTo.width, e)}px`,
-          height: `${lerp(panelFrom.height, panelTo.height, e)}px`,
-          ...Object.fromEntries(
-            CORNERS.map((corner) => [
-              corner,
-              `${lerp(parseFloat(panelFromCorners[corner]) || 0, parseFloat(panelToCorners[corner]) || 0, e)}px`,
-            ])
-          ),
+          left: `${left}px`,
+          top: `${top}px`,
+          width: `${right - left}px`,
+          height: `${bottom - top}px`,
+          paddingBottom: `${basePadBottom + belowFold}px`,
+          [padSide]: `${basePadSide + pastSide}px`,
+          ...Object.fromEntries(CORNERS.map((corner) => [corner, `${radius}px`])),
         });
       },
       onComplete: () => detailPanel.remove(),
@@ -1905,7 +1946,7 @@ const PANEL_DOWNWARD_BIAS = 0.45;
 // bottom is indistinguishable from it, and the landing hand-off is invisible.
 const PANEL_BOTTOM_OVERSHOOT = 8;
 
-// The same trick applied to the panel's far vertical edge, on phones only.
+// The same trick applied to the panel's far vertical edge.
 //
 // The complaint it answers: on a phone the panel lands flush against the
 // viewport's left edge, so its right edge travels 16px while its left travels
@@ -1920,9 +1961,11 @@ const PANEL_BOTTOM_OVERSHOOT = 8;
 // The stylesheet's resting box -- square, flush at 0 -- is indistinguishable
 // from it, which is what makes the landing hand-off invisible.
 //
-// Desktop is untouched. Its far edge is the RIGHT one, and while it also lands
-// flush, the desktop panel's sweep is large enough and its box travels far
-// enough that the split reads correctly there.
+// Applies to both layouts. The phone's far edge is the left one (its panel is
+// left:0), the desktop's is the right one (right:0); both finish flush against
+// the screen, so both can run past it. With this, no corner anywhere in the
+// expansion straightens while it is visible -- the bottom already behaved this
+// way, and now every edge does.
 const PANEL_SIDE_OVERSHOOT = 8;
 
 // How much the far edge leads the near one, in the same shape as
@@ -2127,29 +2170,39 @@ function flyToDetail(character, cardCanvas) {
     const pick = (corners) =>
       Object.fromEntries(corners.map((corner) => [corner, panelToCorners[corner]]));
 
-    gsap.to(panel, {
-      ...pick(roles.growing),
-      duration: FLIGHT_SECONDS,
-      ease: "power3.inOut",
-    });
-
     // Which way the far edge would have to run to leave the screen, and whether
-    // it is worth doing: only if that edge actually lands flush against the
-    // viewport, and only on a phone.
+    // that is possible: only if the edge actually lands flush against the
+    // viewport, since anywhere else the overshoot would be visible as the
+    // panel running somewhere it does not belong.
+    //
+    // Both layouts qualify, which is why there is no breakpoint here. The
+    // phone's panel is left:0 and its far edge is the left one; the desktop's
+    // is right:0 and its far edge is the right one. Either way it ends on the
+    // screen edge and can keep going past it.
     const lateOnLeft = roles.growing[0] === "borderTopRightRadius";
     const lateEdgeFlush = lateOnLeft
       ? Math.abs(panelTo.left) <= EDGE_FLUSH_SLOP
       : Math.abs(panelTo.right - window.innerWidth) <= EDGE_FLUSH_SLOP;
-    const sideOvershoot = isPhone() && lateEdgeFlush;
+    const sideOvershoot = lateEdgeFlush;
+
+    // Only when the far edge cannot leave the screen. Where it can, every
+    // corner is driven together in growPanel below.
+    if (!sideOvershoot) {
+      gsap.to(panel, {
+        ...pick(roles.growing),
+        duration: FLIGHT_SECONDS,
+        ease: "power3.inOut",
+      });
+    }
 
     // The far pair are headed for a square 0, and a corner going square while
     // the box is still moving reads as the panel straightening out before it
     // has landed. They hold the card's own radius and only square off once the
     // box is essentially in position.
     //
-    // Skipped entirely when the edge is leaving the screen: there, the corners
-    // hold the card's radius for the whole move and go off the side still
-    // rounded, so there is no straightening to time in the first place.
+    // Skipped entirely when the far edge is leaving the screen. There the
+    // panel keeps ONE radius on all four corners the whole way -- see
+    // growPanel -- so there is no second behaviour to time.
     if (!sideOvershoot) {
       gsap.to(panel, {
         ...pick(roles.late),
@@ -2167,6 +2220,12 @@ function flyToDetail(character, cardCanvas) {
     const fromGrowing = parseFloat(panelFromCorners[growingCorner]) || 0;
     const toGrowing = parseFloat(panelToCorners[growingCorner]) || 0;
     const joiningCorner = (base) => lerp(fromGrowing, toGrowing, base);
+    // every corner, or just the one that stays on screen plus its neighbour,
+    // depending on whether the others have anywhere to hide
+    const cornerRadii = (radius) =>
+      Object.fromEntries(
+        (sideOvershoot ? CORNERS : [roles.joining]).map((corner) => [corner, `${radius}px`])
+      );
 
     // ...which only works because the bottom edge outruns the viewport. The
     // corner's curve occupies the last `radius` pixels of the left edge, so
@@ -2185,13 +2244,11 @@ function flyToDetail(character, cardCanvas) {
     const basePadBottom = parseFloat(panelStyle.paddingBottom) || 0;
 
     // How far past the side the far edge has to run before its corners are out
-    // of sight: the curve occupies the last `radius` pixels of that edge, and
-    // the corners keep the card's radius the whole way, so that is the radius
-    // it started on.
-    const lateCornerRadius = Math.max(
-      ...roles.late.map((corner) => parseFloat(panelFromCorners[corner]) || 0)
-    );
-    const sideRun = sideOvershoot ? lateCornerRadius + PANEL_SIDE_OVERSHOOT : 0;
+    // of sight. The curve occupies the last `radius` pixels of that edge, and
+    // every corner now grows to the panel's own big radius rather than holding
+    // the card's small one -- so it is that final radius that has to clear the
+    // screen, exactly as the bottom clears the fold by toGrowing above.
+    const sideRun = sideOvershoot ? toGrowing + PANEL_SIDE_OVERSHOOT : 0;
     const lateTo = lateOnLeft ? panelTo.left - sideRun : panelTo.right + sideRun;
     const basePadSide = parseFloat(
       lateOnLeft ? panelStyle.paddingLeft : panelStyle.paddingRight
@@ -2230,9 +2287,18 @@ function flyToDetail(character, cardCanvas) {
         height: `${bottom - top}px`,
         paddingBottom: `${basePadBottom + belowFold}px`,
         [padSide]: `${basePadSide + pastSide}px`,
-        // driven here rather than as its own tween so it can track top-left
-        // exactly -- see joiningCorner
-        [roles.joining]: `${joiningCorner(base)}px`,
+        // One radius on every corner, all the way. The panel in flight is a
+        // single shape rather than one signature corner and three leftovers
+        // from the card -- which is what it looked like when the far pair held
+        // 40px while this one grew to 158.
+        //
+        // None of them squares off during the move. The other three simply
+        // leave the screen still round: the bottom runs a full radius past the
+        // fold, the far side a full radius past the screen edge. Square is only
+        // the stylesheet's RESTING shape, where those edges sit on the viewport
+        // edges and a curve would notch the corner of the window -- and it is
+        // swapped in at the landing, by which point nothing can see it happen.
+        ...cornerRadii(joiningCorner(base)),
       });
     };
 
