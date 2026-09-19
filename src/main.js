@@ -202,6 +202,31 @@ function unionRect(a, b) {
   };
 }
 
+// When a box travelling from `start` to `dest` has `dest` covered, as linear
+// progress along the tween -- for deciding how long something sitting at `dest`
+// has to stay hidden. Only the edges that begin INSIDE the destination can
+// leave it showing, so those are the ones measured; a start box that already
+// contains the destination answers 0.
+//
+// The curve is walked rather than inverted in closed form so that changing the
+// ease cannot silently leave this answering for the old one.
+function coverTime(start, dest, ease, slop) {
+  const gap = Math.max(
+    0,
+    start.left - dest.left,
+    start.top - dest.top,
+    dest.right - start.right,
+    dest.bottom - start.bottom
+  );
+  if (gap <= slop) return 0;
+  const covered = 1 - slop / gap;
+  const eased = gsap.parseEase(ease);
+  for (let t = 0; t < 1; t += 1 / 240) {
+    if (eased(t) >= covered) return t;
+  }
+  return 1;
+}
+
 function fadeIn(el, delay = 0) {
   el.classList.add("fade-scale-pane", "fade-scale-enter");
   requestAnimationFrame(() => {
@@ -1263,6 +1288,34 @@ function mount(buildFn, { fade = true } = {}) {
 // until then.
 const CARD_RETURN_SECONDS = 0.3;
 const CARD_RETURN_DELAY = 0.55;
+// The curve the panel's box travels on, in both directions. Named because the
+// reveal below has to solve against exactly the one the panel is using.
+const PANEL_MORPH_EASE = "power3.inOut";
+// 0.55 is late enough for five of the six. It is not late enough for Rosetta,
+// and the difference is where her card rests rather than anything about the
+// timing: the expanded panel's left edge sits at the rail, 144px to the RIGHT
+// of the first card in the row, so that strip is the one piece of the grid the
+// shrinking panel never covers until it arrives. Every other card's box is
+// inside the panel's for the whole move, which is why nothing shows there.
+//
+// What it looked like: a pale vertical sliver of Rosetta's own card panel --
+// the card at 70% over white, against the panel at full strength -- down the
+// left edge of the panel for the last 200ms, reading as a flash of the
+// destination just before the landing. 17px of it at t=0.65, 4.5px at 0.75.
+//
+// So the card being landed on no longer waits for a fixed moment but for
+// cover: the progress at which the panel's box has its box, give or take a
+// pixel. A card the panel already contains solves to 0 and keeps the timing
+// above, so this changes nothing for the other five.
+const LANDING_COVER_SLOP = 1.5;
+// and it is opaque a little before the panel is taken away, rather than on the
+// same frame -- the hand-off should never depend on which tween GSAP happens
+// to finish first
+const LANDING_CARD_OPAQUE_BY = 0.96;
+// however tight cover turns out to be, it never gets less of the flight than
+// this to come up in -- a card appearing in one frame is the flash back again,
+// just at the other end
+const CARD_RETURN_MIN = 0.1;
 // back.in read backwards, softened. The cards leave on CARD_EXIT_EASE, a
 // spring that winds up before it goes, and returning on its curve makes the
 // two halves one motion rather than an exit with a fade for a partner.
@@ -1445,17 +1498,8 @@ function flyToGrid(characterId) {
       .forEach((card, rank) => returnRanks.set(card, { side, rank }));
   }
 
-  gsap.fromTo(
-    target.card,
-    { opacity: 0 },
-    {
-      opacity: 1,
-      duration: FLIGHT_SECONDS * CARD_RETURN_SECONDS,
-      ease: "power2.out",
-      delay: FLIGHT_SECONDS * CARD_RETURN_DELAY,
-    }
-  );
-
+  // The card being landed on is brought back below, after the panel: when it
+  // can appear depends on the path the panel takes to reach it.
   for (const card of returning) {
     const { side, rank } = returnRanks.get(card) ?? { side: 1, rank: 0 };
     gsap.fromTo(
@@ -1481,9 +1525,39 @@ function flyToGrid(characterId) {
     );
   }
 
+  // how much of the flight the destination card spends uncovered by the panel
+  // heading for it; nothing to wait for if there is no panel in the air
+  let landingCover = 0;
+
   if (detailPanel && panelFrom) {
     const panelTo = target.panel.getBoundingClientRect();
     const panelToCorners = readCorners(target.panel);
+
+    // One shadow at a time.
+    //
+    // The card being landed on carries the same `0 18px 30px -10px` as the
+    // panel shrinking into it, and by the end the two are cast from the same
+    // box -- 0.2 alpha over 0.2 composites to 0.36, a band up to 27% darker
+    // than either, heaviest below and to the sides where there is white page
+    // to show it against. It blooms as the card comes up and halves again the
+    // instant the panel is taken away, which read as the destination
+    // announcing itself just before the landing. The pale sliver above was the
+    // first half of that flash; this was the rest of it, and it was on every
+    // character rather than only the one.
+    //
+    // Measured rather than reasoned about: holding the clock at t=0.98 and
+    // taking the frame with and without the card changes 72,605 pixels, and
+    // all of them but a 1px ring of edge antialiasing fall OUTSIDE the panel's
+    // box -- 41k below, 13k left, 15k right, none above, which is that shadow
+    // and nothing else.
+    //
+    // Going out there is no such moment: the clicked card is torn down with
+    // the grid in the same frame the detail panel takes over its box, so one
+    // shadow replaces the other. Coming back, the two overlap for the last
+    // fifth of the flight. So the flying panel's shadow stands in for the
+    // card's, and the card gets its own back on the frame the flying one
+    // leaves.
+    target.panel.style.boxShadow = "none";
     // out early, while the box is still big enough for the layout they were
     // written for; visibility follows so they cannot spill as it shrinks
     gsap.to(detailContents, {
@@ -1521,12 +1595,20 @@ function flyToGrid(characterId) {
     const startLeft = farEdgeFlush && !sweepOnLeft ? panelFrom.left - run : panelFrom.left;
     const startBottom = bottomFlush ? panelFrom.bottom + run : panelFrom.bottom;
 
+    // that start box against the card's, which is where the panel is headed
+    landingCover = coverTime(
+      { left: startLeft, top: panelFrom.top, right: startRight, bottom: startBottom },
+      panelTo,
+      PANEL_MORPH_EASE,
+      LANDING_COVER_SLOP
+    );
+
     const panelStyle = getComputedStyle(detailPanel);
     const basePadBottom = parseFloat(panelStyle.paddingBottom) || 0;
     const padSide = sweepOnLeft ? "paddingRight" : "paddingLeft";
     const basePadSide = parseFloat(panelStyle[padSide]) || 0;
 
-    const baseEase = gsap.parseEase("power3.inOut");
+    const baseEase = gsap.parseEase(PANEL_MORPH_EASE);
     const shrink = { t: 0 };
     gsap.to(shrink, {
       t: 1,
@@ -1559,9 +1641,30 @@ function flyToGrid(characterId) {
           ...Object.fromEntries(CORNERS.map((corner) => [corner, `${radius}px`])),
         });
       },
-      onComplete: () => detailPanel.remove(),
+      onComplete: () => {
+        detailPanel.remove();
+        target.panel.style.boxShadow = "";
+      },
     });
   }
+
+  // The card the character is landing on, held until the panel is over it --
+  // never before the row it belongs to, and always opaque before the panel is
+  // taken off it.
+  const revealAt = Math.min(
+    Math.max(CARD_RETURN_DELAY, landingCover),
+    LANDING_CARD_OPAQUE_BY - CARD_RETURN_MIN
+  );
+  gsap.fromTo(
+    target.card,
+    { opacity: 0 },
+    {
+      opacity: 1,
+      duration: FLIGHT_SECONDS * Math.min(CARD_RETURN_SECONDS, LANDING_CARD_OPAQUE_BY - revealAt),
+      ease: "power2.out",
+      delay: FLIGHT_SECONDS * revealAt,
+    }
+  );
 
   const stageRect = unionRect(from, to);
   mascotCanvas.style.left = `${stageRect.left}px`;
@@ -2314,7 +2417,7 @@ function flyToDetail(character, cardCanvas) {
     // starts on the card and lands on the stylesheet's layout exactly as it
     // did -- only the path between them changes. The horizontal edges stay on
     // the base curve; the complaint was never about the sideways travel.
-    const baseEase = gsap.parseEase("power3.inOut");
+    const baseEase = gsap.parseEase(PANEL_MORPH_EASE);
     const growPanel = (t) => {
       const base = baseEase(t);
       const down = base ** (1 - PANEL_DOWNWARD_BIAS);
