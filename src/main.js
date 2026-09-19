@@ -1227,9 +1227,26 @@ function mount(buildFn, { fade = true } = {}) {
 // until then.
 const CARD_RETURN_SECONDS = 0.3;
 const CARD_RETURN_DELAY = 0.55;
+// back.in read backwards. The cards leave on CARD_EXIT_EASE, a spring that
+// winds up before it goes; returning on its mirror makes the two halves one
+// motion rather than an exit with a fade for a partner.
+const CARD_RETURN_EASE = "back.out(2.2)";
+// The footer lands last of everything, a touch behind the cards it sits under.
+const FOOTER_RETURN_DELAY = 0.92;
+const FOOTER_RETURN_SECONDS = 0.5;
 // the detail panel's own text goes early, while the box is still near full
 // size; below about this the layout it was written for no longer fits
 const DETAIL_TEXT_FADE = 0.28;
+
+// When the rail and the close row arrive, as shares of the flight.
+//
+// They used to start at 0.12 and be fully in by 0.46, which put them on screen
+// while the cards they replace were still dropping out of the row -- two
+// unrelated things moving over each other. The cards are clear by roughly 0.5
+// (CARD_EXIT_SECONDS plus its stagger), so these now begin after that and
+// settle just past the landing: the panel arrives, then its furniture does.
+const CHROME_FADE_DELAY = 0.8;
+const CHROME_FADE = 0.5;
 
 // The mirror of flyToDetail: carries the expanded character back into its card
 // rather than cutting to the grid. Same machinery throughout -- the mascot's
@@ -1343,9 +1360,45 @@ function flyToGrid(characterId) {
   // the one the eye is heading towards, so seeing it sitting there waiting is
   // what gave away the ending. It has to be fully opaque before the flying
   // panel is removed at the landing, which the window below guarantees.
-  const arriving = [...view.otherCards(characterId), target.card];
+  // The cards come back the way they left, reversed: up from the drop, out of
+  // the tilt, rippling outward from the one being flown into. Fading them in
+  // on the spot was the whole of it before, which read as the row appearing
+  // rather than returning -- a flash, especially against a panel still
+  // visibly shrinking.
+  //
+  // The card being landed on is deliberately not part of it. It is the
+  // destination, and the panel is morphing into its box; drop-and-tilting the
+  // thing the character is arriving at would fight the landing.
+  // The footer is part of the grid, so it is on screen the instant the grid is
+  // built -- which is at the START of the flight back, under a panel that is
+  // still nearly full size. It leaves on its own schedule going out; coming
+  // back it now waits for the row it belongs to.
+  const returningFooter = view.querySelector(".grid-footer");
+  if (returningFooter) {
+    gsap.fromTo(
+      returningFooter,
+      { opacity: 0 },
+      {
+        opacity: 1,
+        duration: FLIGHT_SECONDS * FOOTER_RETURN_SECONDS,
+        ease: "power2.out",
+        delay: FLIGHT_SECONDS * FOOTER_RETURN_DELAY,
+      }
+    );
+  }
+
+  const targetLeft = target.card.getBoundingClientRect().left;
+  const returning = view.otherCards(characterId);
+  const returnRanks = new Map();
+  for (const side of [-1, 1]) {
+    returning
+      .filter((card) => Math.sign(card.getBoundingClientRect().left - targetLeft) === side)
+      .sort((a, b) => side * (a.getBoundingClientRect().left - b.getBoundingClientRect().left))
+      .forEach((card, rank) => returnRanks.set(card, { side, rank }));
+  }
+
   gsap.fromTo(
-    arriving,
+    target.card,
     { opacity: 0 },
     {
       opacity: 1,
@@ -1354,6 +1407,31 @@ function flyToGrid(characterId) {
       delay: FLIGHT_SECONDS * CARD_RETURN_DELAY,
     }
   );
+
+  for (const card of returning) {
+    const { side, rank } = returnRanks.get(card) ?? { side: 1, rank: 0 };
+    gsap.fromTo(
+      card,
+      {
+        opacity: 0,
+        y: CARD_EXIT_DROP * (1 + rank * 0.14),
+        rotation: side * CARD_EXIT_TILT * (1 + rank * 0.22),
+        // same pivot the exit used, so the arc is the one being retraced
+        transformOrigin: "50% 0%",
+      },
+      {
+        opacity: 1,
+        y: 0,
+        rotation: 0,
+        duration: CARD_EXIT_SECONDS,
+        // back.out is back.in read backwards: the exit's wind-up becomes a
+        // settle, so the pair are the same motion in opposite directions
+        ease: CARD_RETURN_EASE,
+        delay: FLIGHT_SECONDS * CARD_RETURN_DELAY + rank * CARD_EXIT_STAGGER,
+        clearProps: "transform,transformOrigin",
+      }
+    );
+  }
 
   if (detailPanel && panelFrom) {
     const panelTo = target.panel.getBoundingClientRect();
@@ -2223,7 +2301,16 @@ function flyToDetail(character, cardCanvas) {
   // toward rects measured against this layout, so it must not move. The panel
   // itself is excluded -- it grows opaque rather than fading in.
   const chrome = [view.querySelector(".close-row"), view.querySelector(".detail-rail")].filter(Boolean);
-  gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.34, ease: "power2.out", delay: 0.12 });
+  gsap.fromTo(
+    chrome,
+    { opacity: 0 },
+    {
+      opacity: 1,
+      duration: FLIGHT_SECONDS * CHROME_FADE,
+      ease: "power2.out",
+      delay: FLIGHT_SECONDS * CHROME_FADE_DELAY,
+    }
+  );
 
   // the card's text holds its place while the panel grows out from under it,
   // then hands over to the detail panel's own title as that fades in
