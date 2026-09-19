@@ -841,6 +841,42 @@ function buildDetailInfo(character) {
   return info;
 }
 
+// The description wraps to whatever width the panel gives it, and during a
+// flight the panel is still growing -- so the text re-wraps under itself as it
+// fades in. Measured at 1180x820 on Disgust: eight lines at the frame it
+// becomes visible, seven by the next, a 30px jump in the middle of the fade.
+// At 1440 the last re-wrap happens to land one frame BEFORE it appears, which
+// is why it looked fine at some sizes and not others.
+//
+// Pinned to the width it will finish at, taken while the view is still laid
+// out at full size and before the panel is pinned for the flight. The line
+// count is then decided once, and nothing it does afterwards can change it.
+// Cleared on landing so the stylesheet's own sizing resumes and a resize
+// behaves normally.
+function pinTextWidth(view) {
+  const text = view?.querySelector(".detail-text");
+  if (!text) return null;
+  const width = text.getBoundingClientRect().width;
+  if (!width) return null;
+  // width alone is not enough: .detail-info is a flex row and this is a flex
+  // item, so the default flex-shrink lets it fall below whatever width it is
+  // given the moment the panel is narrower than the content. Measured setting
+  // width to 311px and reading 189px back. min-width and flex-shrink together
+  // are what actually hold it.
+  Object.assign(text.style, {
+    width: `${width}px`,
+    minWidth: `${width}px`,
+    flexShrink: "0",
+  });
+  // removed directly rather than through gsap's clearProps, which takes CSS
+  // names and was quietly leaving all three in place
+  return () => {
+    text.style.removeProperty("width");
+    text.style.removeProperty("min-width");
+    text.style.removeProperty("flex-shrink");
+  };
+}
+
 // The character's canvas, and the viewer that draws into it. Also split out so
 // a switch can build a second one and slide it in over the first.
 function buildMascotCanvas(character) {
@@ -1274,6 +1310,9 @@ function flyToGrid(characterId) {
   // anything still in the air from the expand (its text ghost, the footer)
   dropOutgoingCards();
 
+  // the panel is still at rest at this point, so this measures the same width
+  // the text has been wrapping to all along
+  pinTextWidth(detailView);
   const detailPanel = detailView.querySelector(".detail-panel");
   const panelFrom = detailPanel?.getBoundingClientRect();
   const panelFromCorners = detailPanel ? readCorners(detailPanel) : null;
@@ -2136,6 +2175,7 @@ function flyToDetail(character, cardCanvas) {
   // deferred until landing so it isn't rendering full-size alongside us.
   const view = buildDetailView(character.id, { deferMascot: true });
   app.appendChild(view);
+  const unpinText = pinTextWidth(view);
 
   const target = view.querySelector(".detail-mascot-canvas");
   const to = target.getBoundingClientRect();
@@ -2338,6 +2378,7 @@ function flyToDetail(character, cardCanvas) {
             CORNERS.join(","),
         });
         gsap.set(contents, { clearProps: "visibility" });
+        unpinText?.();
       },
     });
     gsap.to(contents, {
