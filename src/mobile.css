@@ -8,6 +8,16 @@
 
 @media (max-width: 720px) {
   :root {
+    /* Half the character, half the halo -- see --aura-size in style.css.
+       Proportionally right on its own, and it is also what makes carrying the
+       filter through the flight affordable here: the flight canvas is the
+       union of both rects, ~3M device pixels at this DPR, and that whole
+       region is re-blurred every frame. 50px could not be paid for at 60fps
+       on a phone; this can. */
+    --aura-size: 26px;
+  }
+
+  :root {
     --detail-inset: clamp(90px, 26vw, 160px);
   }
 

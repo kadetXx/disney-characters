@@ -224,10 +224,14 @@ function buildCharacterCard(character) {
   // horizontal nudge for poses that should spill off the card (Rosetta's gown)
   canvasWrap.style.setProperty("--shift-x", `${character.shiftX ?? 0}%`);
   canvasWrap.style.setProperty("--card-nudge", `${character.cardNudge ?? 0}px`);
-  canvasWrap.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
-  canvasWrap.style.setProperty("--aura-size", AURA.blur);
   const canvas = document.createElement("canvas");
   canvas.setAttribute("aria-hidden", "true");
+  // On the canvas, not the wrap. The filter that reads these lives on the
+  // canvas, and the flight lifts that canvas out to <body> -- so set on the
+  // wrap they simply stop inheriting the moment the character takes off, and
+  // var(--aura, transparent) falls back to transparent. The detail view
+  // already sets them this way; this makes the pair agree.
+  canvas.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
   canvasWrap.appendChild(canvas);
   card.appendChild(canvasWrap);
 
@@ -790,8 +794,9 @@ function buildGridView() {
 // drop-shadow has no spread parameter the way box-shadow does, so the two
 // levers are blur distance and colour alpha: push blur up and alpha down for a
 // wider, softer halo; pull blur in and alpha up for a tighter, punchier one.
-// nice value: const AURA = { blur: "45px", alpha: 0.4 };
-const AURA = { blur: "50px", alpha: 0.4 };
+// The halo's radius lives in CSS as --aura-size, so it can vary by
+// breakpoint; only its colour and strength are decided per character here.
+const AURA = { alpha: 0.4 };
 
 function rgba(hex, a) {
   const n = parseInt(hex.slice(1), 16);
@@ -845,12 +850,11 @@ function buildMascotCanvas(character) {
   canvas.style.setProperty("--detail-shift-x", `${character.detailShiftX ?? 0}%`);
   canvas.style.setProperty("--detail-shift-y", `${character.detailShiftY ?? 0}%`);
   canvas.style.setProperty("--mobile-nudge", `${character.mobileNudge ?? 0}px`);
-  // same accent halo the cards carry, so the character doesn't arrive here
-  // permanently stripped of it. Affordable on this canvas and not on the
-  // flight's precisely because this one is static -- the blur rasterises once
-  // and is cached, rather than being redone every frame.
+  // the same accent halo the cards carry, and the same one the flight between
+  // them carries. Set on the canvas rather than on any wrapper because the
+  // flight lifts this element out to <body>, and an inherited custom property
+  // would stop resolving the moment it did.
   canvas.style.setProperty("--aura", rgba(character.gradient[2], AURA.alpha));
-  canvas.style.setProperty("--aura-size", AURA.blur);
   return canvas;
 }
 
@@ -1407,7 +1411,9 @@ function flyToGrid(characterId) {
       lerp(fromFraming.verticalAnchor, toFraming.verticalAnchor, t)
     );
     viewer.render();
+    dimAura?.(t);
   };
+  const dimAura = flightAuraDimmer(viewer.canvas);
   apply(0);
 
   const progress = { t: 0 };
@@ -1696,6 +1702,37 @@ const FLIGHT_RENDER_SCALE = 0.75;
 // swap replaces it within the same frame -- so the match has to be in place
 // several frames before the end.
 const FLIGHT_SHARP_EDGE = 0.12;
+
+// What the flight's halo shrinks to at the midpoint, as a share of the resting
+// radius. Phones only.
+//
+// Exactly the bargain FLIGHT_RENDER_SCALE above already strikes, applied to the
+// other per-frame cost: through the fast middle the character is moving too
+// quickly for the difference to register, and the fast middle is where the
+// frames are most expensive. Both ends sit at the full radius, so the hand-off
+// to the resting aura is an identity rather than a step.
+//
+// It is worth this much because of where the cost comes from. The flight
+// canvas is the union of both rects -- around 3M device pixels at a phone's
+// DPR, most of them empty -- and a drop-shadow re-blurs that entire region on
+// every frame. Radius is the only term in that we can actually move.
+const FLIGHT_AURA_MIN = 0.34;
+
+// Eases the halo down through the middle of a flight and back up by the end.
+// Null on anything but a phone, where the full radius is affordable throughout.
+function flightAuraDimmer(canvas) {
+  if (!isPhone()) return null;
+  const full = parseFloat(getComputedStyle(canvas).getPropertyValue("--aura-size"));
+  if (!full) return null;
+  // sin is 0 at both ends and 1 at the midpoint, with no corner at either end
+  // -- a linear ramp would start shrinking the halo the instant the character
+  // moved, which is the frame you are most likely to be looking at it in
+  return (t) => {
+    const dip = Math.sin(Math.PI * Math.min(1, Math.max(0, t)));
+    const radius = full * (1 - (1 - FLIGHT_AURA_MIN) * dip);
+    canvas.style.setProperty("--aura-size", `${radius.toFixed(1)}px`);
+  };
+}
 // if the mascot's model somehow never resolves, don't strand the flight canvas
 // on top of the page forever
 const LANDING_TIMEOUT = 2000;
@@ -2140,7 +2177,9 @@ function flyToDetail(character, cardCanvas) {
       lerp(fromFraming.verticalAnchor, toFraming.verticalAnchor, t)
     );
     viewer.render();
+    dimAura?.(t);
   };
+  const dimAura = flightAuraDimmer(viewer.canvas);
   apply(0);
 
   // Opacity only, never transform: the panel and character are both flying

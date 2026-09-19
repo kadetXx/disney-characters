@@ -7,6 +7,13 @@
      out by exactly this much to be cut off flush with the panel's edge, and
      the panel does not clip -- so any drift between the two is visible. */
   --panel-pad-x: clamp(26px, 5vw, 70px);
+  /* The accent halo's blur radius. In CSS rather than set per element from JS
+     so it can answer a media query: the characters are drawn at roughly half
+     the size on a phone, so a radius tuned for the desktop is proportionally
+     twice the halo there -- and, because the flight carries this filter now,
+     twice the blur to re-rasterise on every frame of it. The phone value is
+     the desktop one scaled by how much smaller the character is. */
+  --aura-size: 50px;
   --color-bg: #ffffff;
   --color-ink: #14141a;
   --color-muted: #9a9aa3;
@@ -746,13 +753,22 @@ img {
 /* A character in transit between the card and the detail layout. Pinned to the
    viewport so neither view's scroll or overflow can clip it, and above
    everything because it passes over the nav and the rail on the way.
-   Deliberately no drop-shadow: the aura is a 50px blur over a canvas whose
-   contents change every frame, so it cannot be cached and re-rasterises the
-   whole box each time -- far too expensive to carry through a transition. */
+
+   It keeps its aura. This used to be dropped, on the reasoning that a 50px
+   blur over a canvas redrawn every frame cannot be cached and so re-rasterises
+   the whole box each time -- which is true, but was never measured against
+   what it costs to simply let it happen. What it definitely did cost was
+   visible: the halo blinked out the instant a character left its card and
+   blinked back when it landed, on every expand and every close.
+
+   Both ends carry the identical filter, so carrying it through the middle is
+   not an effect being added -- it is the one that was already there being left
+   alone. */
 .flight-canvas {
   position: fixed;
   z-index: 60;
   pointer-events: none;
+  filter: drop-shadow(0 0 var(--aura-size, 10px) var(--aura, transparent));
 }
 
 .detail-mascot-canvas {
@@ -761,16 +777,23 @@ img {
   top: calc(-11% + var(--detail-shift-y, 0%));
   width: 54%;
   height: 118%;
-  /* the cards' accent halo, carried through to the expanded view. Unlike the
-     flight canvas this one's contents are static, so the blur rasterises once
-     and is cached instead of being redone every frame. */
+  /* the cards' accent halo, carried through to the expanded view -- and now
+     through the flight between them, so it is the same halo throughout rather
+     than one that switches off in transit. Cheapest here of the three: these
+     contents are static, so the blur rasterises once and is cached instead of
+     being redone every frame. */
   filter: drop-shadow(0 0 var(--aura-size, 10px) var(--aura, transparent));
-  /* Blooms in rather than snapping on. The flight carries no aura at all (see
-     .flight-canvas), so the moment this class lands the halo would otherwise
-     arrive complete, in a single frame, on a character that has just come to
-     rest -- which is the flash that reads as something switching on rather than
-     settling. Interpolating from `none` uses the zero value for the missing
-     function, so it grows out of the silhouette from nothing.
+  /* Blooms in rather than snapping on, for the paths that arrive here WITHOUT
+     a flight: first load, a switch between two expanded characters, or a
+     flight that failed and fell back to a plain mount. There the halo would
+     otherwise arrive complete in a single frame, which reads as something
+     switching on rather than settling. Interpolating from `none` uses the zero
+     value for the missing function, so it grows out of the silhouette from
+     nothing.
+
+     A character that flew here already has its halo and needs none of this --
+     which is the point: the flight hands over to a filter identical to the one
+     it was already carrying, so there is nothing to bloom.
 
      Affordable here for the same reason the filter itself is: by the time this
      runs the canvas contents have stopped changing, so it is one blur being
