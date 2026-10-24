@@ -16,7 +16,7 @@ const MODEL_BASE = import.meta.env.BASE_URL + "models/";
 //   are comparatively small, compact characters.
 // - verticalAnchor: fraction of the character's own height to drop it by
 //   after centering, so the feet land near the card's panel edge instead of
-//   floating mid-canvas -- see frameObject() in three/viewer.js. Wide,
+//   floating mid-canvas -- see applyFraming() in three/viewer.js. Wide,
 //   diagonal poses (Rosetta's flying pose) need a bigger drop to dip into
 //   the panel the way the reference does; upright poses mostly just need
 //   their feet to kiss the panel's top edge.
@@ -108,10 +108,10 @@ export const characters = [
   {
     id: "rosetta",
     // px to lift this character on its card on mobile, so its lowest point
-    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // clears the name by the same amount as everyone else. Rosetta's trailing
     // foot overlapped the title by 11px; Judy floated 39px clear of it.
     cardNudge: -39,
-    // px to drop this character so its feet land on the panel\'s top edge
+    // px to drop this character so its feet land on the panel's top edge
     // on mobile. Measured per character: the framing that suits each pose on
     // desktop leaves the feet anywhere from 14px below that edge to 33px above
     // it, and on a phone the panel edge is the ground they stand on.
@@ -134,10 +134,10 @@ export const characters = [
   {
     id: "sadness",
     // px to lift this character on its card on mobile, so its lowest point
-    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // clears the name by the same amount as everyone else. Rosetta's trailing
     // foot overlapped the title by 11px; Judy floated 39px clear of it.
     cardNudge: -23,
-    // px to drop this character so its feet land on the panel\'s top edge
+    // px to drop this character so its feet land on the panel's top edge
     // on mobile. Measured per character: the framing that suits each pose on
     // desktop leaves the feet anywhere from 14px below that edge to 33px above
     // it, and on a phone the panel edge is the ground they stand on.
@@ -161,10 +161,10 @@ export const characters = [
   {
     id: "disgust",
     // px to lift this character on its card on mobile, so its lowest point
-    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // clears the name by the same amount as everyone else. Rosetta's trailing
     // foot overlapped the title by 11px; Judy floated 39px clear of it.
     cardNudge: -1,
-    // px to drop this character so its feet land on the panel\'s top edge
+    // px to drop this character so its feet land on the panel's top edge
     // on mobile. Measured per character: the framing that suits each pose on
     // desktop leaves the feet anywhere from 14px below that edge to 33px above
     // it, and on a phone the panel edge is the ground they stand on.
@@ -187,10 +187,10 @@ export const characters = [
   {
     id: "judy",
     // px to lift this character on its card on mobile, so its lowest point
-    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // clears the name by the same amount as everyone else. Rosetta's trailing
     // foot overlapped the title by 11px; Judy floated 39px clear of it.
     cardNudge: 11,
-    // px to drop this character so its feet land on the panel\'s top edge
+    // px to drop this character so its feet land on the panel's top edge
     // on mobile. Measured per character: the framing that suits each pose on
     // desktop leaves the feet anywhere from 14px below that edge to 33px above
     // it, and on a phone the panel edge is the ground they stand on.
@@ -213,10 +213,10 @@ export const characters = [
   {
     id: "moana",
     // px to lift this character on its card on mobile, so its lowest point
-    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // clears the name by the same amount as everyone else. Rosetta's trailing
     // foot overlapped the title by 11px; Judy floated 39px clear of it.
     cardNudge: -4,
-    // px to drop this character so its feet land on the panel\'s top edge
+    // px to drop this character so its feet land on the panel's top edge
     // on mobile. Measured per character: the framing that suits each pose on
     // desktop leaves the feet anywhere from 14px below that edge to 33px above
     // it, and on a phone the panel edge is the ground they stand on.
@@ -239,10 +239,10 @@ export const characters = [
   {
     id: "vanellope",
     // px to lift this character on its card on mobile, so its lowest point
-    // clears the name by the same amount as everyone else. Rosetta\'s trailing
+    // clears the name by the same amount as everyone else. Rosetta's trailing
     // foot overlapped the title by 11px; Judy floated 39px clear of it.
     cardNudge: -1,
-    // px to drop this character so its feet land on the panel\'s top edge
+    // px to drop this character so its feet land on the panel's top edge
     // on mobile. Measured per character: the framing that suits each pose on
     // desktop leaves the feet anywhere from 14px below that edge to 33px above
     // it, and on a phone the panel edge is the ground they stand on.

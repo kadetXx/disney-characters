@@ -327,8 +327,7 @@ if (!sheet) {
 // dev-only: runs the entrance on demand rather than making a test wait on
 // 100MB of models first, and reports where the fill has got to. Pair it with
 // window.__gsap (see main.js) to pause and scrub the reveal at exact progress
-// values -- the machine renders this page at a couple of frames a second, so a
-// screenshot taken by the clock lands wherever it happens to land.
+// values.
 if (import.meta.env.DEV) {
   window.__loading = {
     reveal,
