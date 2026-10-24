@@ -16,8 +16,7 @@ const loader = new GLTFLoader();
 //
 // DRACOLoader runs the decoder in a worker built from a blob, so index.html's
 // CSP carries `worker-src 'self' blob:`. Without it the worker is refused and
-// nothing renders at all -- which is exactly how this was left last time it was
-// attempted, and why that attempt's "comparison" was a blank canvas.
+// nothing renders at all.
 const draco = new DRACOLoader();
 draco.setDecoderPath(import.meta.env.BASE_URL + "draco/");
 loader.setDRACOLoader(draco);
@@ -29,10 +28,6 @@ loader.setMeshoptDecoder(MeshoptDecoder);
 
 const modelCache = new Map();
 
-// How glossy the characters read. Roughness is clamped (lower = sharper
-// reflections) and a clearcoat layer sits on top, like the lacquer on a vinyl
-// figure. Gloss needs something to reflect, so this only shows up alongside
-// the environment map below.
 // One place to tune how the characters are lit and how shiny they read.
 // envIntensity is the big lever for "too shiny": it controls how much of the
 // environment they reflect, and it also lifts the shadow side, so turning it
@@ -151,7 +146,7 @@ export function prefetchModel(url) {
         })
         .then((buffer) => {
           // report it as arrived, so the loading sheet's fill advances on the
-          // bytes exactly as it did when the loader owned the download
+          // bytes
           for (const listener of byteListeners) listener(url);
           return buffer;
         })
@@ -483,8 +478,8 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   scene.environment = environment;
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
 
-  // dialled back from the un-lit-environment values: the env map now carries
-  // most of the fill, and these only add shape and a warm rim
+  // the env map carries most of the fill, and these only add shape and a
+  // warm rim
   scene.add(new THREE.AmbientLight(0xffffff, LOOK.ambient));
   const key = new THREE.DirectionalLight(0xfff2d9, LOOK.key);
   key.position.set(3, 4, 5);
@@ -599,8 +594,8 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   let yawCurrent = 0;
 
   // Offset from the character's resting yaw, in radians, clamped. Driven by
-  // the cursor rather than by a drag -- see the hover handling in main.js,
-  // which decides whether the pointer is actually over the character.
+  // the cursor, or by a touch drag -- see pointerYaw and attachMascotDrag in
+  // main.js.
   function setYawOffset(offset) {
     yawTarget = Math.max(-YAW_LIMIT, Math.min(YAW_LIMIT, offset));
     // the scenes are static and only redraw on demand, so the chase in tick()
@@ -609,8 +604,7 @@ export function createViewer(canvas, { modelUrl, distanceScale = 1.6, verticalAn
   }
 
   // the CSS size this viewer occupies on screen -- drives both the camera
-  // aspect (so framing is identical to the old per-canvas renderer) and the
-  // stage region we render into
+  // aspect and the stage region we render into
   let cssWidth = 0;
   let cssHeight = 0;
 

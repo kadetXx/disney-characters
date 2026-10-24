@@ -807,8 +807,7 @@ img {
      re-rasterised for 420ms rather than one per frame forever.
 
      The way back is deliberately NOT eased. Leaving is a class swap to
-     .flight-canvas, and carrying a 50px blur into a transition that redraws
-     every frame is precisely what that class exists to avoid. */
+     .flight-canvas, which carries the identical filter. */
   transition: filter 420ms cubic-bezier(0.22, 1, 0.36, 1);
   /* the character sits on top of everything -- rail, close button and nav --
      so a tall pose reads as passing in front rather than being cut into */
@@ -871,7 +870,7 @@ img {
 
 .detail-badge {
   position: relative;
-  /* The footprint the four circles occupied. It has to stay this width: the
+  /* The badge's footprint. It has to stay this width: the
      info row is space-between, so a wider badge narrows the description
      column, which wraps to an extra line, which pushes the clip row down --
      measured, 230px here cost a sixth line and left the cards 10px off the
@@ -892,7 +891,7 @@ img {
      some a full lockup with a studio mark that turns to mush at the same
      size. A transform rather than a width so the slot's footprint -- and
      therefore everything below it -- does not move. Growing from the right
-     edge keeps it anchored where the circles were and sends the extra into
+     edge keeps it anchored there and sends the extra into
      the gap beside the text. */
   transform: scale(var(--logo-scale, 1));
   transform-origin: right center;
@@ -1019,12 +1018,6 @@ img {
 }
 
 /* ---------------------------------------------------------------- */
-/* Responsive                                                       */
-/* ---------------------------------------------------------------- */
-
-
-
-/* ---------------------------------------------------------------- */
 /* Switching between expanded characters                            */
 /* ---------------------------------------------------------------- */
 
@@ -1045,7 +1038,6 @@ img {
    they cross, so the incoming pair lay out in the slots they vacated and the
    panel stays the flex column it is built as. */
 
-/* matches select-weapon's fadeScaleReplace, which this is a port of */
 .switch-pane {
   transform-origin: left center;
 }
@@ -1072,9 +1064,8 @@ html.mesh-mode body::after {
   backdrop-filter: grayscale(1);
 }
 
-/* Clip posters. The video only loads when one is asked for (preload=none), so
-   this is what is actually seen until then -- and what is fallen back to if a
-   clip refuses to play. */
+/* Clip posters. The player only loads when one is asked for, so
+   this is what is actually seen until then. */
 .clip-poster {
   position: absolute;
   inset: 0;

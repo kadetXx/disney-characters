@@ -18,8 +18,7 @@ const renderLoop = createRenderLoop();
 const app = document.getElementById("app");
 
 // dev-only: lets a test pause and scrub gsap's global timeline, so the flight
-// can be inspected at exact progress values instead of hoping a screenshot
-// lands mid-tween on a machine rendering at a few frames a second
+// can be inspected at exact progress values
 if (import.meta.env.DEV) window.__gsap = gsap;
 
 // Longest the off-screen models will wait on the visible ones before being
@@ -31,8 +30,7 @@ const CARD_DISTANCE_SCALE = 2.05;
 const MASCOT_DISTANCE_SCALE = 1.02;
 const FADE_SETTLE_TIMEOUT = 320;
 
-// How the row arrives. Shape ported from the home cards in kadet.dev (v3),
-// played backwards; the easing is this project's own, mirroring CARD_EXIT_EASE
+// How the row arrives. The easing mirrors CARD_EXIT_EASE
 // so leaving and arriving belong to the same room. Longer and decelerating
 // than the exit: going gets out of the way, arriving has to land.
 const CARD_ENTER_SECONDS = 0.42;
@@ -56,10 +54,8 @@ const CARD_ENTER_FADE_EASE = "power2.out";
 // spreads a row that is already in place, while this one has to read as four
 // separate arrivals across a full card's travel.
 const CARD_ENTER_STAGGER = 0.08;
-// How far to the right each card starts, as a share of its own width. The
-// portfolio reaches by one narrow card, ~326px against a 1440 viewport; a card
-// here is ~360px at that width, so this lands on the same distance while
-// staying proportional at the widths where these cards are much smaller.
+// How far to the right each card starts, as a share of its own width, so it
+// stays proportional at the widths where these cards are much smaller.
 const CARD_ENTER_REACH = 0.9;
 const CARD_ENTER_SCALE = 0.94;
 
@@ -413,10 +409,7 @@ function buildGridView() {
   const footer = document.createElement("footer");
   footer.className = "grid-footer";
   footer.innerHTML = `
-    <!-- Was a Facebook and a Twitter link, both of which went nowhere
-         (href="#" and a cancelled click). The row is the same size and in the
-         same place; it now carries the two credits, and both go somewhere.
-         The design points at the shot this was built from rather than at a
+    <!-- The two credits. The design points at the shot this was built from rather than at a
          profile or a portfolio home -- it is the specific thing being
          credited, and it is what someone following the link came to see. -->
     <div class="social-links">
@@ -436,10 +429,10 @@ function buildGridView() {
         aria-label="About this project"
         aria-describedby="noticeText"
       >
-        <!-- A heart, and not the copyright mark this replaced. Rendered beside
-             the two credits, the (c) was the heaviest thing in the row and
+        <!-- A heart, and not a copyright mark. Rendered beside
+             the two credits, a (c) was the heaviest thing in the row and
              read as a legal notice stamped onto a page about cartoon
-             characters. An outline heart carries the same weight as the 14px
+             characters. A heart carries the same weight as the
              text next to it, so the row stays quiet -- and "made with care,
              here is the fine print" is the honest tone for what this is.
 
@@ -458,7 +451,7 @@ function buildGridView() {
           >A personal project, not affiliated with Disney</span
         >
       </button>
-      <a href="https://kadet.dev" target="_blank" rel="noopener noreferrer">Code</a>
+      <a href="https://github.com/kadetXx/disney-characters" target="_blank" rel="noopener noreferrer">Code</a>
       <a
         href="https://dribbble.com/shots/5874646-Disney-Characters-Web-UI"
         target="_blank"
@@ -723,7 +716,7 @@ function buildGridView() {
   //
   // The prefetch deliberately waits until these have actually DRAWN rather
   // than merely been asked for. The models are 15-27MB of geometry each and
-  // the cost is meshopt decode and GPU upload, not download -- measured, every
+  // the cost is decode and GPU upload, not download -- measured, every
   // file had arrived by 4.3s but nothing was on screen until 12.8s. Starting
   // all six decoding at once simply made the visible ones queue behind the
   // ones nobody can see.
@@ -828,14 +821,9 @@ function rgba(hex, a) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-// The movie's logo, sitting where the four decorative circles used to. Kept at
-// the same footprint so the info row's layout is unchanged, and contained
+// The movie's logo, contained
 // rather than cropped so a real logo of any sensible aspect drops straight in
 // without being cut.
-//
-// The four-circle version this replaced is parked, with its placeholder art, at
-// ~/Desktop/disney-characters-parked/four-circle-badge -- the idea of putting
-// four different images in four circles is still open, it just is not this.
 function buildBadge(character) {
   const badge = document.createElement("div");
   badge.className = "detail-badge";
@@ -1304,7 +1292,7 @@ const PANEL_MORPH_EASE = "power3.inOut";
 // destination just before the landing. 17px of it at t=0.65, 4.5px at 0.75.
 //
 // So the card being landed on no longer waits for a fixed moment but for
-// cover: the progress at which the panel's box has its box, give or take a
+// cover: the progress at which the panel's box covers its box, give or take a
 // pixel. A card the panel already contains solves to 0 and keeps the timing
 // above, so this changes nothing for the other five.
 const LANDING_COVER_SLOP = 1.5;
@@ -1396,8 +1384,7 @@ function flyToGrid(characterId) {
   // .detail-mascot-canvas is declared later in the stylesheet, so at equal
   // specificity its position:absolute and z-index:6 would beat the flight's
   // fixed/60 and the canvas would be laid out against a detail view that no
-  // longer exists. Losing its aura with it is correct -- the flight never
-  // carries one.
+  // longer exists.
   mascotCanvas.classList.remove("detail-mascot-canvas");
   mascotCanvas.classList.add("flight-canvas");
   document.body.appendChild(mascotCanvas);
@@ -1456,11 +1443,6 @@ function flyToGrid(characterId) {
     whenCardReady?.();
   });
 
-  // The cards simply arrive -- they are not reversing their exit. The card
-  // being flown into is faded with the rest rather than left standing: it is
-  // the one the eye is heading towards, so seeing it sitting there waiting is
-  // what gave away the ending. It has to be fully opaque before the flying
-  // panel is removed at the landing, which the window below guarantees.
   // The cards come back the way they left, reversed: up from the drop, out of
   // the tilt, rippling outward from the one being flown into. Fading them in
   // on the spot was the whole of it before, which read as the row appearing
@@ -1722,7 +1704,7 @@ function flyToGrid(characterId) {
 /* ------------------------------------------------------------------ */
 
 const SWITCH_SECONDS = 0.55;
-// matches select-weapon's fadeScaleReplace: 240ms, scale 0.95, origin left
+// the copy's cross-fade: 240ms, scale 0.95, origin left
 const SWITCH_TEXT_SECONDS = 0.24;
 const SWITCH_TEXT_SCALE = 0.95;
 // how far the clip row drops as it leaves, and arrives from
@@ -1813,17 +1795,15 @@ function switchDetail(characterId, direction = 1) {
   mountMascot(newCanvas, character, null);
 
   // +1 runs the swap UPWARD: the outgoing character leaves out of the top and
-  // the next arrives from below, the way a vertical feed moves. That pairs the
-  // two inputs the conventional way round -- scrolling the wheel down and
-  // swiping the finger up both mean "next" -- which they did not when the swap
-  // ran the other way. -1 mirrors the whole thing for going back.
+  // the next arrives from below, the way a vertical feed moves, so swiping the
+  // finger up means "next". -1 mirrors the whole thing for going back.
   const dir = direction < 0 ? -1 : 1;
   const travel = oldCanvas.getBoundingClientRect().height * SWITCH_MODEL_TRAVEL * dir;
 
   const tl = gsap.timeline();
   tl.to(wash, { opacity: 1, duration: SWITCH_SECONDS * 0.7, ease: "power2.inOut" }, 0);
 
-  // copy and clips cross-fade on select-weapon's curve
+  // copy and clips cross-fade
   tl.to(oldInfo, { opacity: 0, scale: SWITCH_TEXT_SCALE, duration: SWITCH_TEXT_SECONDS, ease: "power2.in" }, 0);
   tl.fromTo(
     newInfo,
@@ -1938,7 +1918,7 @@ function switchDetail(characterId, direction = 1) {
 
 // The expanded view's half of the sliding window.
 //
-// The grid has had one since the models were three times the size: mountNearby
+// The grid has one: mountNearby
 // keeps the cards within a card's reach of the screen and releaseDistant hands
 // back everything past it, so paging the carousel on a phone holds three
 // characters and no more.
@@ -2119,8 +2099,7 @@ const PANEL_BOTTOM_OVERSHOOT = 8;
 // Applies to both layouts. The phone's far edge is the left one (its panel is
 // left:0), the desktop's is the right one (right:0); both finish flush against
 // the screen, so both can run past it. With this, no corner anywhere in the
-// expansion straightens while it is visible -- the bottom already behaved this
-// way, and now every edge does.
+// expansion straightens while it is visible.
 const PANEL_SIDE_OVERSHOOT = 8;
 
 // How much the far edge leads the near one, in the same shape as
@@ -2210,7 +2189,7 @@ function flyToDetail(character, cardCanvas) {
   // same task -- the card is about to be re-parented onto <body>, where
   // without it a .char-card is just an inline-block button in normal flow.
   // gsap.set() only renders through the global timeline, so anything that
-  // pauses that timeline (the scrub harness does) leaves the pin unapplied.
+  // pauses that timeline leaves the pin unapplied.
   for (const { card, rect } of leaving) {
     Object.assign(card.style, {
       position: "fixed",
@@ -2414,9 +2393,8 @@ function flyToDetail(character, cardCanvas) {
     // The box is driven edge by edge rather than as one rect, so the bottom
     // can run ahead of the top (see PANEL_DOWNWARD_BIAS). Both warps are of
     // the SAME base ease and both still map 0 to 0 and 1 to 1, so the panel
-    // starts on the card and lands on the stylesheet's layout exactly as it
-    // did -- only the path between them changes. The horizontal edges stay on
-    // the base curve; the complaint was never about the sideways travel.
+    // starts on the card and lands on the stylesheet's layout exactly -- only
+    // the path between them changes.
     const baseEase = gsap.parseEase(PANEL_MORPH_EASE);
     const growPanel = (t) => {
       const base = baseEase(t);
@@ -2510,7 +2488,7 @@ function flyToDetail(character, cardCanvas) {
     // Full detail across both ends of the flight, reduced only through the
     // fast middle. setSize early-returns when the pixel size is unchanged, so
     // this reallocates exactly twice across the whole flight (entering and
-    // leaving the fast stretch) rather than the once it used to -- and both
+    // leaving the fast stretch) -- and both
     // happen in the same task as the render below, so the wipe a reallocation
     // causes is never what gets painted.
     const sharp = t <= FLIGHT_SHARP_EDGE || t >= 1 - FLIGHT_SHARP_EDGE;
@@ -2550,8 +2528,7 @@ function flyToDetail(character, cardCanvas) {
       opacity: 0,
       duration: FLIGHT_SECONDS * (CARD_TEXT_FADE_TO - CARD_TEXT_FADE_FROM),
       // out, not in. power2.in spends its window near full opacity and dumps at
-      // the end, which is the behaviour being fixed -- this leaves promptly and
-      // eases into gone.
+      // the end -- this leaves promptly and eases into gone.
       ease: "power2.out",
       delay: FLIGHT_SECONDS * CARD_TEXT_FADE_FROM,
       onComplete() {
@@ -2686,10 +2663,6 @@ const YAW_SPAN = 0.33;
 // round before the cursor had moved at all. Taking the first move as neutral
 // means she starts facing front wherever the pointer happens to be, and turns
 // only in response to actual movement.
-//
-// This also replaced a hover-to-arm version that hit-tested the rendered
-// alpha to find her silhouette. None of that is needed now, and the
-// per-pointermove getImageData readback it cost goes with it.
 let yawOrigin = null;
 let yawFrame = null;
 let lastPointer = null;
@@ -2734,7 +2707,7 @@ document.addEventListener(
   (event) => {
     // A finger is not a cursor. Following it would mean the character turned
     // as a side effect of every scroll and tap, and only while the finger was
-    // down -- so touch gets a drag instead, in attachMascotDrag below.
+    // down -- so touch gets a drag instead, in attachMascotDrag above.
     if (event.pointerType === "touch") return;
     lastPointer = event.clientX;
     // one update per frame at most; the pointer fires far more often than the
